@@ -379,6 +379,7 @@
   // AUTENTICAÇÃO (EXCLUSIVO ADMIN)
   // =========================
   function showSetup() {
+    stopVerseRotation();
     $('appView').classList.add('hidden');
     $('loginView').classList.add('hidden');
     $('setupView').classList.remove('hidden');
@@ -388,6 +389,7 @@
   }
 
   function showLogin() {
+    stopVerseRotation();
     $('appView').classList.add('hidden');
     $('setupView').classList.add('hidden');
     $('loginView').classList.remove('hidden');
@@ -435,6 +437,115 @@
     }
   }
 
+  const BIBLICAL_VERSES = [
+    'Põe-se vinho novo em odres novos (Marcos 2. 22)',
+    'Tudo o que fizerdes, fazei-o de todo o coração (Colossenses 3. 23)',
+    'O Senhor é o meu pastor; nada me faltará (Salmos 23. 1)',
+    'Lâmpada para os meus pés é a tua palavra e luz para o meu caminho (Salmos 119. 105)',
+    'Tudo posso naquele que me fortalece (Filipenses 4. 13)',
+    'Entrega o teu caminho ao Senhor; confia nele, e ele tudo fará (Salmos 37. 5)',
+    'Sê forte e corajoso; não temas, nem te espantes, porque o Senhor teu Deus é contigo (Josué 1. 9)',
+    'Deixo-vos a paz, a minha paz vos dou (João 14. 27)',
+    'O Senhor te abençoe e te guarde (Números 6. 24)',
+    'Alegrai-vos na esperança, sede pacientes na tribulação, perseverai na oração (Romanos 12. 12)',
+    'Confia no Senhor de todo o teu coração e não te estribes no teu próprio entendimento (Provérbios 3. 5)',
+    'Mas os que esperam no Senhor renovam as suas forças (Isaías 40. 31)',
+    'Sabemos que todas as coisas cooperam para o bem daqueles que amam a Deus (Romanos 8. 28)',
+    'Vinde a mim, todos os que estais cansados e oprimidos, e eu vos aliviarei (Mateus 11. 28)',
+    'Deus é o nosso refúgio e fortaleza, socorro bem presente na angústia (Salmos 46. 1)',
+    'Porque Deus amou o mundo de tal maneira que deu o seu Filho unigênito (João 3. 16)',
+    'Eu sou o caminho, a verdade e a vida (João 14. 6)',
+    'Aquele que habita no esconderijo do Altíssimo, à sombra do Onipotente descansará (Salmos 91. 1)',
+    'Em tudo dai graças, porque esta é a vontade de Deus em Cristo Jesus (1 Tessalonicenses 5. 18)',
+    'O choro pode durar uma noite, mas a alegria vem pela manhã (Salmos 30. 5)',
+    'Buscai primeiro o Reino de Deus e a sua justiça, e todas estas coisas vos serão acrescentadas (Mateus 6. 33)',
+    'A minha graça te basta, porque o meu poder se aperfeiçoa na fraqueza (2 Coríntios 12. 9)',
+    'Porque onde estiverem dois ou três reunidos em meu nome, ali estou no meio deles (Mateus 18. 20)',
+    'O amor é paciente, o amor é bondoso (1 Coríntios 13. 4)',
+    'Lançando sobre ele toda a vossa ansiedade, porque ele tem cuidado de vós (1 Pedro 5. 7)',
+    'Não temas, porque eu sou contigo; não te assombres, porque eu sou o teu Deus (Isaías 41. 10)',
+    'Ensina-nos a contar os nossos dias, para que alcancemos coração sábio (Salmos 90. 12)',
+    'Este é o dia que fez o Senhor; regozijemo-nos e alegremo-nos nele (Salmos 118. 24)',
+    'Bendize, ó minha alma, ao Senhor, e não te esqueças de nenhum de seus benefícios (Salmos 103. 2)',
+    'Porque eu bem sei os pensamentos que penso de vós, diz o Senhor; pensamentos de paz (Jeremias 29. 11)',
+    'Se Deus é por nós, quem será contra nós? (Romanos 8. 31)',
+    'A fé é o firme fundamento das coisas que se esperam (Hebreus 11. 1)',
+    'Sede misericordiosos, como também vosso Pai é misericordioso (Lucas 6. 36)',
+    'O Senhor é a minha luz e a minha salvação; de quem terei medo? (Salmos 27. 1)',
+    'Bem-aventurados os pacificadores, porque serão chamados filhos de Deus (Mateus 5. 9)',
+    'Clama a mim, e responder-te-ei, e anunciar-te-ei coisas grandes e firmes (Jeremias 33. 3)',
+    'Sede firmes e constantes, sempre abundantes na obra do Senhor (1 Coríntios 15. 58)',
+    'O coração alegre aformoseia o rosto (Provérbios 15. 13)',
+    'Permanecei em mim, e eu permanecerei em vós (João 15. 4)',
+    'A paz de Deus, que excede todo o entendimento, guardará os vossos corações (Filipenses 4. 7)',
+  ];
+
+  let verseRotateTimer = null;
+  let verseFadeTimer = null;
+  let lastVerseText = '';
+
+  function getVersePool() {
+    const custom = (state.monthData?.verse || '').trim();
+    if (custom && !BIBLICAL_VERSES.includes(custom)) {
+      return [custom, ...BIBLICAL_VERSES];
+    }
+    return BIBLICAL_VERSES;
+  }
+
+  function pickRandomVerse(excludeText) {
+    const pool = getVersePool();
+    if (pool.length <= 1) return pool[0] || '';
+    let candidate = pool[Math.floor(Math.random() * pool.length)];
+    let tries = 0;
+    while (candidate === excludeText && tries < 8) {
+      candidate = pool[Math.floor(Math.random() * pool.length)];
+      tries += 1;
+    }
+    return candidate;
+  }
+
+  function stopVerseRotation() {
+    if (verseRotateTimer) {
+      clearInterval(verseRotateTimer);
+      verseRotateTimer = null;
+    }
+    if (verseFadeTimer) {
+      clearTimeout(verseFadeTimer);
+      verseFadeTimer = null;
+    }
+    const verseEl = $('calVerseText');
+    if (verseEl) verseEl.classList.remove('fading');
+  }
+
+  function startVerseRotation() {
+    stopVerseRotation();
+    const verseEl = $('calVerseText');
+    if (!verseEl) return;
+
+    if (state.monthData.versePinned && state.monthData.verse) {
+      verseEl.textContent = state.monthData.verse;
+      verseEl.classList.remove('placeholder', 'fading');
+      lastVerseText = state.monthData.verse;
+      return;
+    }
+
+    const initialVerse = state.monthData.verse || pickRandomVerse(lastVerseText);
+    verseEl.textContent = initialVerse;
+    verseEl.classList.remove('placeholder', 'fading');
+    lastVerseText = initialVerse;
+
+    verseRotateTimer = setInterval(() => {
+      if (document.hidden) return;
+      const nextVerse = pickRandomVerse(lastVerseText);
+      verseEl.classList.add('fading');
+      verseFadeTimer = setTimeout(() => {
+        verseEl.textContent = nextVerse;
+        verseEl.classList.remove('fading');
+        lastVerseText = nextVerse;
+      }, 280);
+    }, 5000);
+  }
+
   // =========================
   // CARREGAMENTO & RENDERIZAÇÃO DO CALENDÁRIO
   // =========================
@@ -453,6 +564,7 @@
       const data = await apiFetch(`/api/calendar/${safeYear}/${safeMonth}`);
       state.monthData = {
         verse: data.verse || '',
+        versePinned: Boolean(data.versePinned),
         cells: data.cells || {},
       };
       renderCalendar();
@@ -464,19 +576,9 @@
   function renderCalendar() {
     const year = state.viewYear;
     const month = state.viewMonth;
-    const editable = canEdit();
 
-    // Versículo / Lema mensal
-    const verseEl = $('calVerseText');
-    if (state.monthData.verse) {
-      verseEl.textContent = state.monthData.verse;
-      verseEl.classList.remove('placeholder');
-    } else {
-      verseEl.textContent = editable
-        ? 'Clique aqui para adicionar o versículo ou lema deste mês...'
-        : `${MONTHS_CAP[month - 1]} de ${year}`;
-      verseEl.classList.add('placeholder');
-    }
+    // Versículo / Lema mensal com rotação aleatória a cada 5 segundos (ou fixo se marcado)
+    startVerseRotation();
 
     const firstDayDow = new Date(year, month - 1, 1).getDay(); // 0=Dom .. 6=Sab
     const daysInMonth = new Date(year, month, 0).getDate();
@@ -879,23 +981,30 @@
   // =========================
   function openVerseModal() {
     if (!canEdit()) return;
-    $('verseModalSub').textContent = `${MONTHS_CAP[state.viewMonth - 1]} de ${state.viewYear}`;
+    $('verseModalSub').textContent = `${MONTHS_CAP[state.viewMonth - 1]} de ${state.viewYear} • Rotação automática a cada 5s`;
     $('verseInput').value = state.monthData.verse || '';
+    $('versePinCheckbox').checked = Boolean(state.monthData.versePinned);
     openModal('verseModal');
     setTimeout(() => $('verseInput').focus(), 40);
   }
 
-  async function saveVerse(verseText) {
+  async function saveVerse(verseText, versePinned = false) {
     try {
       const res = await apiFetch(`/api/calendar/${state.viewYear}/${state.viewMonth}/verse`, {
         method: 'PUT',
-        body: JSON.stringify({ verse: verseText }),
+        body: JSON.stringify({ verse: verseText, versePinned: Boolean(versePinned) }),
       });
       state.monthData.verse = res.verse;
+      state.monthData.versePinned = Boolean(res.versePinned);
       updateLocalMonthCache(state.viewYear, state.viewMonth, state.monthData, res.updatedAt);
       renderCalendar();
       closeModal('verseModal');
-      showToast('Versículo / lema atualizado!', 'success');
+      showToast(
+        state.monthData.versePinned
+          ? 'Versículo fixado neste mês!'
+          : 'Rotação automática de versículos (5s) ativada!',
+        'success'
+      );
     } catch (err) {
       showToast(err.message, 'error');
     }
@@ -1137,11 +1246,11 @@
 
     $('verseForm').addEventListener('submit', (e) => {
       e.preventDefault();
-      saveVerse($('verseInput').value);
+      saveVerse($('verseInput').value, $('versePinCheckbox').checked);
     });
 
     $('clearVerseBtn').addEventListener('click', () => {
-      saveVerse('');
+      saveVerse('', false);
     });
 
     // Modal de Célula
@@ -1353,8 +1462,14 @@
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => fitAllCellTexts(), 100);
     });
-    window.addEventListener('beforeprint', () => fitAllCellTexts());
-    window.addEventListener('afterprint', () => fitAllCellTexts());
+    window.addEventListener('beforeprint', () => {
+      stopVerseRotation();
+      fitAllCellTexts();
+    });
+    window.addEventListener('afterprint', () => {
+      startVerseRotation();
+      fitAllCellTexts();
+    });
     if (document.fonts && document.fonts.ready) {
       document.fonts.ready.then(() => fitAllCellTexts());
     }

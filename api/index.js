@@ -743,10 +743,11 @@ module.exports = async function handler(req, res) {
     if (calMatch && method === 'GET') {
       const monthKey = isValidMonthKey(calMatch[1], calMatch[2]);
       if (!monthKey) return sendJson(res, 400, { error: 'Ano ou mês inválido.' });
-      const monthData = db.months[monthKey] || { verse: '', cells: {} };
+      const monthData = db.months[monthKey] || { verse: '', versePinned: false, cells: {} };
       return sendJson(res, 200, {
         monthKey,
         verse: monthData.verse || '',
+        versePinned: Boolean(monthData.versePinned),
         cells: monthData.cells || {},
         updatedAt: db.updatedAt || 0,
       });
@@ -759,15 +760,17 @@ module.exports = async function handler(req, res) {
       if (!monthKey) return sendJson(res, 400, { error: 'Ano ou mês inválido.' });
       const body = await readJsonBody(req);
       const verse = sanitizeText(body.verse, 300);
+      const versePinned = Boolean(body.versePinned) && Boolean(verse);
       if (!db.months[monthKey]) {
-        db.months[monthKey] = { verse: '', cells: {} };
+        db.months[monthKey] = { verse: '', versePinned: false, cells: {} };
       }
       db.months[monthKey].verse = verse;
+      db.months[monthKey].versePinned = versePinned;
       db.months[monthKey].updatedBy = adminUser.username;
       db.months[monthKey].updatedAt = new Date().toISOString();
       db.updatedAt = Date.now();
       saveDb(db);
-      return sendJson(res, 200, { ok: true, verse, updatedAt: db.updatedAt });
+      return sendJson(res, 200, { ok: true, verse, versePinned, updatedAt: db.updatedAt });
     }
 
     // PUT /api/calendar/:year/:month/cell/:cellKey

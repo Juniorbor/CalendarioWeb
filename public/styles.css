@@ -670,6 +670,11 @@ body {
   font-weight: 400;
   color: var(--text-main);
   line-height: 1.4;
+  transition: opacity 0.3s ease;
+}
+
+.cal-verse-text.fading {
+  opacity: 0;
 }
 
 .cal-verse-text.placeholder {

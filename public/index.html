@@ -376,14 +376,18 @@
       </div>
       <form id="verseForm" class="modal-body">
         <div class="field">
-          <label for="verseInput">Texto exibido na faixa central superior da tabela</label>
+          <label for="verseInput">Versículo personalizado do mês (opcional)</label>
           <textarea id="verseInput" rows="3" maxlength="300" placeholder="Ex.: Põe-se vinho novo em odres novos (Marcos 2. 22)"></textarea>
         </div>
+        <label class="checkbox-row">
+          <input type="checkbox" id="versePinCheckbox" />
+          <span>Fixar somente este versículo (pausar rotação automática de 5 segundos)</span>
+        </label>
         <div class="modal-footer">
-          <button type="button" id="clearVerseBtn" class="btn btn-danger-outline">Limpar</button>
+          <button type="button" id="clearVerseBtn" class="btn btn-outline">Usar rotação aleatória (5s)</button>
           <div class="footer-right">
             <button type="button" class="btn btn-outline" data-close="verseModal">Cancelar</button>
-            <button type="submit" class="btn btn-primary">Salvar Lema</button>
+            <button type="submit" class="btn btn-primary">Salvar</button>
           </div>
         </div>
       </form>
