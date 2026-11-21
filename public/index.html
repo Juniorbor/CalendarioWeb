@@ -3,40 +3,71 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Calendário Mensal</title>
+  <title>Calendário Mensal — Acesso Administrativo</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <!-- TELA DE LOGIN -->
-  <div id="loginView" class="login-screen hidden">
-    <div class="login-card">
+  <!-- TELA 1: CONFIGURAÇÃO INICIAL (CRIAR SENHA DO ADMINISTRADOR) -->
+  <div id="setupView" class="login-screen hidden">
+    <div class="login-card login-card-wide">
       <div class="login-accent-bar"></div>
       <div class="login-header">
         <div class="login-logo" aria-hidden="true">
           <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
-            <line x1="16" y1="2" x2="16" y2="6"></line>
-            <line x1="8" y1="2" x2="8" y2="6"></line>
-            <line x1="3" y1="10" x2="21" y2="10"></line>
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+            <path d="M9 12l2 2 4-4"></path>
           </svg>
         </div>
-        <h1>Calendário Mensal</h1>
-        <p>Informe seu usuário e senha para acessar e editar a programação.</p>
+        <h1>Configuração Inicial do Administrador</h1>
+        <p>Crie um login exclusivo e uma senha forte para proteger o acesso ao calendário.</p>
       </div>
 
-      <form id="loginForm" class="login-form" autocomplete="on">
-        <div class="field">
-          <label for="loginUsername">Usuário</label>
-          <input id="loginUsername" name="username" type="text" placeholder="Digite seu usuário" required autocomplete="username" />
+      <form id="setupForm" class="login-form" autocomplete="off">
+        <div class="form-row-2">
+          <div class="field">
+            <label for="setupUsername">Usuário do Administrador</label>
+            <input id="setupUsername" name="username" type="text" value="admin" minlength="3" maxlength="40" required autocomplete="username" />
+          </div>
+          <div class="field">
+            <label for="setupDisplayName">Nome de Exibição</label>
+            <input id="setupDisplayName" name="displayName" type="text" value="Administrador" maxlength="80" required />
+          </div>
         </div>
+
         <div class="field">
-          <label for="loginPassword">Senha</label>
+          <label for="setupPassword">Criar Senha Forte</label>
           <div class="password-wrap">
-            <input id="loginPassword" name="password" type="password" placeholder="Digite sua senha" required autocomplete="current-password" />
-            <button type="button" id="togglePasswordBtn" class="icon-inline-btn" title="Mostrar ou ocultar senha" aria-label="Mostrar ou ocultar senha">
+            <input id="setupPassword" name="new-password" type="password" placeholder="Crie uma senha forte" required autocomplete="new-password" />
+            <button type="button" class="icon-inline-btn toggle-pw-btn" data-target="setupPassword" title="Mostrar ou ocultar senha" aria-label="Mostrar ou ocultar senha">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                <circle cx="12" cy="12" r="3"></circle>
+              </svg>
+            </button>
+          </div>
+
+          <div class="pw-strength-wrap">
+            <div class="pw-strength-bar"><div id="setupStrengthFill" class="pw-strength-fill"></div></div>
+            <span id="setupStrengthLabel" class="pw-strength-label">Digite a senha</span>
+          </div>
+
+          <ul id="setupPwChecklist" class="pw-checklist">
+            <li data-rule="len">Mínimo de 8 caracteres</li>
+            <li data-rule="upper">Pelo menos 1 letra maiúscula (A–Z)</li>
+            <li data-rule="lower">Pelo menos 1 letra minúscula (a–z)</li>
+            <li data-rule="num">Pelo menos 1 número (0–9)</li>
+            <li data-rule="sym">Pelo menos 1 caractere especial (!@#$%...)</li>
+          </ul>
+        </div>
+
+        <div class="field">
+          <label for="setupPasswordConfirm">Confirmar Senha</label>
+          <div class="password-wrap">
+            <input id="setupPasswordConfirm" name="confirm-password" type="password" placeholder="Repita a senha criada" required autocomplete="new-password" />
+            <button type="button" class="icon-inline-btn toggle-pw-btn" data-target="setupPasswordConfirm" title="Mostrar ou ocultar senha" aria-label="Mostrar ou ocultar senha">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
                 <circle cx="12" cy="12" r="3"></circle>
@@ -45,6 +76,57 @@
           </div>
         </div>
 
+        <div id="setupError" class="alert-error hidden"></div>
+
+        <button type="submit" id="setupSubmitBtn" class="btn btn-primary btn-block btn-lg">
+          Criar Senha e Acessar
+        </button>
+      </form>
+
+      <div class="login-footer-note">
+        Acesso exclusivo do Administrador • Senha protegida com criptografia scrypt
+      </div>
+    </div>
+  </div>
+
+  <!-- TELA 2: LOGIN SEGURO (EXCLUSIVO ADMINISTRADOR) -->
+  <div id="loginView" class="login-screen hidden">
+    <div class="login-card">
+      <div class="login-accent-bar"></div>
+      <div class="login-header">
+        <div class="login-logo" aria-hidden="true">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+          </svg>
+        </div>
+        <h1>Acesso Administrativo</h1>
+        <p>Informe as credenciais do administrador para acessar e editar o calendário.</p>
+      </div>
+
+      <form id="loginForm" class="login-form" autocomplete="on">
+        <div class="field">
+          <label for="loginUsername">Usuário</label>
+          <input id="loginUsername" name="username" type="text" placeholder="Usuário do administrador" required autocomplete="username" />
+        </div>
+        <div class="field">
+          <label for="loginPassword">Senha</label>
+          <div class="password-wrap">
+            <input id="loginPassword" name="password" type="password" placeholder="Digite sua senha" required autocomplete="current-password" />
+            <button type="button" class="icon-inline-btn toggle-pw-btn" data-target="loginPassword" title="Mostrar ou ocultar senha" aria-label="Mostrar ou ocultar senha">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                <circle cx="12" cy="12" r="3"></circle>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <label class="checkbox-row">
+          <input type="checkbox" id="loginRemember" />
+          <span>Manter conectado neste dispositivo (7 dias)</span>
+        </label>
+
         <div id="loginError" class="alert-error hidden"></div>
 
         <button type="submit" id="loginSubmitBtn" class="btn btn-primary btn-block btn-lg">
@@ -52,22 +134,8 @@
         </button>
       </form>
 
-      <div class="login-hints">
-        <div class="hints-title">Acessos iniciais (clique para preencher)</div>
-        <div class="hint-chips">
-          <button type="button" class="hint-chip" data-u="admin" data-p="admin123">
-            <span>Administrador</span>
-            <code>admin / admin123</code>
-          </button>
-          <button type="button" class="hint-chip" data-u="editor" data-p="editor123">
-            <span>Editor</span>
-            <code>editor / editor123</code>
-          </button>
-          <button type="button" class="hint-chip" data-u="visitante" data-p="visitante123">
-            <span>Visualização</span>
-            <code>visitante / visitante123</code>
-          </button>
-        </div>
+      <div class="login-footer-note">
+        Área protegida contra força bruta • Acesso exclusivo do Administrador
       </div>
     </div>
   </div>
@@ -124,7 +192,7 @@
       <div class="topbar-right">
         <button type="button" id="openSearchBtn" class="btn btn-outline" title="Buscar em todos os meses">Buscar</button>
         <button type="button" id="printBtn" class="btn btn-outline" title="Imprimir tabela">Imprimir</button>
-        <button type="button" id="openUsersBtn" class="btn btn-outline" title="Conta, senha e usuários">Conta</button>
+        <button type="button" id="openSecurityBtn" class="btn btn-outline" title="Alterar senha, sessões e backup">Segurança</button>
         <div class="user-pill" id="userBadge"></div>
         <button type="button" id="logoutBtn" class="btn btn-danger-outline" title="Sair do sistema">Sair</button>
       </div>
@@ -344,80 +412,105 @@
     </div>
   </div>
 
-  <!-- MODAL: CONTA, USUÁRIOS E BACKUP -->
-  <div id="usersModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="usersModalTitle">
+  <!-- MODAL: SEGURANÇA DO ADMINISTRADOR & BACKUP -->
+  <div id="securityModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="securityModalTitle">
     <div class="modal-card modal-lg">
       <div class="modal-header">
         <div>
-          <h2 id="usersModalTitle">Conta, Usuários e Backup</h2>
-          <p class="modal-sub">Gerencie sua senha de acesso, usuários autorizados e cópias de segurança.</p>
+          <h2 id="securityModalTitle">Segurança do Administrador</h2>
+          <p class="modal-sub">Altere sua senha com validação forte, controle sessões ativas e faça backup dos dados.</p>
         </div>
-        <button type="button" class="modal-close" data-close="usersModal" aria-label="Fechar">✕</button>
+        <button type="button" class="modal-close" data-close="securityModal" aria-label="Fechar">✕</button>
       </div>
 
       <div class="modal-tabs">
-        <button type="button" class="tab-btn active" data-tab="tabPassword">Minha Senha</button>
-        <button type="button" class="tab-btn" data-tab="tabUsers" id="tabUsersBtn">Usuários</button>
-        <button type="button" class="tab-btn" data-tab="tabBackup" id="tabBackupBtn">Backup</button>
+        <button type="button" class="tab-btn active" data-tab="tabPassword">Alterar Senha e Acesso</button>
+        <button type="button" class="tab-btn" data-tab="tabBackup">Backup e Restauração</button>
       </div>
 
       <div class="modal-body">
-        <!-- Aba Senha -->
+        <!-- Aba Alterar Senha -->
         <div id="tabPassword" class="tab-panel active">
-          <form id="changePasswordForm" class="stack-form">
+          <form id="changePasswordForm" class="stack-form-wide" autocomplete="off">
+            <div class="form-row-2">
+              <div class="field">
+                <label for="secUsername">Usuário do Administrador</label>
+                <input id="secUsername" type="text" minlength="3" maxlength="40" required />
+              </div>
+              <div class="field">
+                <label for="secDisplayName">Nome de Exibição</label>
+                <input id="secDisplayName" type="text" maxlength="80" required />
+              </div>
+            </div>
+
             <div class="field">
               <label for="curPass">Senha Atual</label>
-              <input id="curPass" type="password" required />
+              <div class="password-wrap">
+                <input id="curPass" type="password" placeholder="Confirme sua senha atual" required autocomplete="current-password" />
+                <button type="button" class="icon-inline-btn toggle-pw-btn" data-target="curPass" aria-label="Mostrar ou ocultar senha">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                    <circle cx="12" cy="12" r="3"></circle>
+                  </svg>
+                </button>
+              </div>
             </div>
+
             <div class="field">
-              <label for="newPass">Nova Senha (mínimo 4 caracteres)</label>
-              <input id="newPass" type="password" minlength="4" required />
+              <label for="newPass">Nova Senha Forte</label>
+              <div class="password-wrap">
+                <input id="newPass" type="password" placeholder="Crie uma nova senha forte" required autocomplete="new-password" />
+                <button type="button" class="icon-inline-btn toggle-pw-btn" data-target="newPass" aria-label="Mostrar ou ocultar senha">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                    <circle cx="12" cy="12" r="3"></circle>
+                  </svg>
+                </button>
+              </div>
+              <div class="pw-strength-wrap">
+                <div class="pw-strength-bar"><div id="changeStrengthFill" class="pw-strength-fill"></div></div>
+                <span id="changeStrengthLabel" class="pw-strength-label">Digite a nova senha</span>
+              </div>
+              <ul id="changePwChecklist" class="pw-checklist">
+                <li data-rule="len">Mínimo de 8 caracteres</li>
+                <li data-rule="upper">Pelo menos 1 letra maiúscula (A–Z)</li>
+                <li data-rule="lower">Pelo menos 1 letra minúscula (a–z)</li>
+                <li data-rule="num">Pelo menos 1 número (0–9)</li>
+                <li data-rule="sym">Pelo menos 1 caractere especial (!@#$%...)</li>
+              </ul>
             </div>
+
             <div class="field">
               <label for="confirmPass">Confirmar Nova Senha</label>
-              <input id="confirmPass" type="password" minlength="4" required />
+              <div class="password-wrap">
+                <input id="confirmPass" type="password" placeholder="Repita a nova senha" required autocomplete="new-password" />
+                <button type="button" class="icon-inline-btn toggle-pw-btn" data-target="confirmPass" aria-label="Mostrar ou ocultar senha">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                    <circle cx="12" cy="12" r="3"></circle>
+                  </svg>
+                </button>
+              </div>
             </div>
-            <div>
-              <button type="submit" class="btn btn-primary">Atualizar Minha Senha</button>
+
+            <div id="changePassError" class="alert-error hidden"></div>
+
+            <div class="security-actions-row">
+              <button type="submit" class="btn btn-primary">Salvar Nova Senha</button>
+              <button type="button" id="revokeAllBtn" class="btn btn-danger-outline">Encerrar todas as sessões</button>
             </div>
           </form>
-        </div>
 
-        <!-- Aba Usuários (Admin) -->
-        <div id="tabUsers" class="tab-panel">
-          <form id="createUserForm" class="create-user-box">
-            <h3>Adicionar Novo Usuário</h3>
-            <div class="form-row-2">
-              <div class="field">
-                <label for="nuUsername">Login (usuário)</label>
-                <input id="nuUsername" type="text" placeholder="ex.: secretaria" required />
-              </div>
-              <div class="field">
-                <label for="nuDisplay">Nome de Exibição</label>
-                <input id="nuDisplay" type="text" placeholder="ex.: Maria Silva" required />
-              </div>
+          <div id="envHashBox" class="env-hash-box hidden">
+            <div class="env-hash-title">Hash criptografado para fixar na Vercel (opcional)</div>
+            <p class="env-hash-desc">Para manter esta senha fixa permanentemente na nuvem mesmo após reinícios do servidor, adicione a variável <code>ADMIN_PASSWORD_HASH</code> nas configurações do projeto na Vercel:</p>
+            <div class="env-hash-row">
+              <input id="envHashInput" type="text" readonly />
+              <button type="button" id="copyEnvHashBtn" class="btn btn-outline">Copiar hash</button>
             </div>
-            <div class="form-row-2">
-              <div class="field">
-                <label for="nuRole">Perfil de Acesso</label>
-                <select id="nuRole">
-                  <option value="editor">Editor (acessa e edita quadros)</option>
-                  <option value="admin">Administrador (edita e gerencia usuários)</option>
-                  <option value="viewer">Visualizador (somente leitura)</option>
-                </select>
-              </div>
-              <div class="field">
-                <label for="nuPassword">Senha inicial</label>
-                <input id="nuPassword" type="password" minlength="4" placeholder="Mínimo 4 caracteres" required />
-              </div>
-            </div>
-            <button type="submit" class="btn btn-primary">Cadastrar Usuário</button>
-          </form>
-
-          <div class="users-list-wrap">
-            <h3>Usuários Cadastrados</h3>
-            <div id="usersList" class="users-list"></div>
           </div>
+
+          <div id="passwordUpdatedMeta" class="meta-info"></div>
         </div>
 
         <!-- Aba Backup -->
@@ -428,8 +521,8 @@
               <p>Baixe um arquivo JSON com todos os meses, versículos, cores litúrgicas e eventos cadastrados.</p>
               <button type="button" id="exportBackupBtn" class="btn btn-primary">Baixar Backup (.json)</button>
             </div>
-            <div class="backup-box" id="restoreBackupBox">
-              <h3>Restaurar Backup (Administrador)</h3>
+            <div class="backup-box">
+              <h3>Restaurar Backup</h3>
               <p>Carregue um arquivo de backup JSON salvo anteriormente para restaurar os meses.</p>
               <input type="file" id="restoreFileInput" accept="application/json,.json" class="file-input" />
               <button type="button" id="restoreBackupBtn" class="btn btn-outline">Restaurar Arquivo</button>

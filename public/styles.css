@@ -259,51 +259,151 @@ body {
   font-weight: 400;
 }
 
-.login-hints {
-  background: var(--surface-muted);
-  border-top: 1px solid var(--border-subtle);
-  padding: 14px 24px 18px;
+.login-card-wide {
+  max-width: 500px;
 }
 
-.hints-title {
+.login-footer-note {
+  background: var(--surface-muted);
+  border-top: 1px solid var(--border-subtle);
+  padding: 12px 22px;
   font-size: 0.8rem;
-  font-weight: 500;
   color: var(--text-muted);
-  margin-bottom: 10px;
   text-align: center;
 }
 
-.hint-chips {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.hint-chip {
+/* Medidor de força e checklist de senha forte */
+.pw-strength-wrap {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.pw-strength-bar {
+  flex: 1;
+  height: 6px;
+  background: var(--border-subtle);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.pw-strength-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  transition: width 0.2s ease, background-color 0.2s ease;
+  background: #cbd5e1;
+}
+
+.pw-strength-fill.level-1 { width: 25%; background: #dc2626; }
+.pw-strength-fill.level-2 { width: 50%; background: #ea580c; }
+.pw-strength-fill.level-3 { width: 75%; background: #d97706; }
+.pw-strength-fill.level-4 { width: 100%; background: #059669; }
+
+.pw-strength-label {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  min-width: 84px;
+  text-align: right;
+}
+
+.pw-checklist {
+  list-style: none;
+  margin: 4px 0 0;
   padding: 8px 12px;
-  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
   border: 1px solid var(--border-subtle);
-  background: #ffffff;
-  color: var(--text-secondary);
-  font-size: 0.86rem;
-  font-weight: 400;
-  cursor: pointer;
-  font-family: inherit;
-  transition: border-color 0.12s ease, background-color 0.12s ease;
+  border-radius: var(--radius-sm);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 12px;
 }
 
-.hint-chip:hover {
-  border-color: var(--blue-primary);
-  background: var(--blue-soft);
+.pw-checklist li {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  position: relative;
+  padding-left: 16px;
 }
 
-.hint-chip code {
-  font-family: 'Cascadia Code', Consolas, monospace;
-  font-size: 0.84rem;
+.pw-checklist li::before {
+  content: '○';
+  position: absolute;
+  left: 0;
+  color: #94a3b8;
+}
+
+.pw-checklist li.ok {
+  color: #065f46;
+}
+
+.pw-checklist li.ok::before {
+  content: '✓';
+  color: #059669;
+}
+
+.stack-form-wide {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.security-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 6px;
+}
+
+.env-hash-box {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius-md);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.env-hash-title {
+  font-size: 0.9rem;
+  font-weight: 500;
   color: var(--blue-navy);
+}
+
+.env-hash-desc {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+
+.env-hash-desc code {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 0.8rem;
+}
+
+.env-hash-row {
+  display: flex;
+  gap: 8px;
+}
+
+.env-hash-row input {
+  flex: 1;
+  padding: 7px 10px;
+  border: 1px solid var(--border-grid);
+  border-radius: var(--radius-sm);
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 0.78rem;
+  background: #ffffff;
+  color: var(--text-main);
 }
 
 /* =========================

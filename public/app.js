@@ -309,7 +309,7 @@
     };
     const res = await fetch(url, opts);
     const data = await res.json().catch(() => ({}));
-    if (res.status === 401 && url !== '/api/login') {
+    if (res.status === 401 && url !== '/api/login' && url !== '/api/auth/setup' && url !== '/api/auth/status') {
       state.user = null;
       setStoredToken('');
       showLogin();
@@ -322,52 +322,107 @@
   }
 
   function canEdit() {
-    return state.user && (state.user.role === 'admin' || state.user.role === 'editor');
+    return Boolean(state.user && state.user.role === 'admin');
   }
 
-  function isAdmin() {
-    return state.user && state.user.role === 'admin';
+  function evaluatePasswordRules(pw) {
+    const val = pw || '';
+    const rules = {
+      len: val.length >= 8,
+      upper: /[A-Z]/.test(val),
+      lower: /[a-z]/.test(val),
+      num: /[0-9]/.test(val),
+      sym: /[^A-Za-z0-9\s]/.test(val),
+    };
+    const metCount = Object.values(rules).filter(Boolean).length;
+    const allMet = metCount === 5;
+    let level = 0;
+    let label = 'Digite a senha';
+    if (val.length > 0) {
+      if (metCount <= 2) {
+        level = 1;
+        label = 'Fraca';
+      } else if (metCount === 3) {
+        level = 2;
+        label = 'Regular';
+      } else if (metCount === 4) {
+        level = 3;
+        label = 'Boa';
+      } else {
+        level = 4;
+        label = val.length >= 12 ? 'Muito forte' : 'Forte';
+      }
+    }
+    return { rules, allMet, level, label };
+  }
+
+  function updateStrengthUi(pw, fillId, labelId, checklistId) {
+    const info = evaluatePasswordRules(pw);
+    const fill = $(fillId);
+    const lbl = $(labelId);
+    const list = $(checklistId);
+    if (fill) {
+      fill.className = `pw-strength-fill${info.level ? ` level-${info.level}` : ''}`;
+    }
+    if (lbl) {
+      lbl.textContent = info.label;
+    }
+    if (list) {
+      list.querySelectorAll('li[data-rule]').forEach((li) => {
+        li.classList.toggle('ok', Boolean(info.rules[li.dataset.rule]));
+      });
+    }
+    return info;
   }
 
   // =========================
-  // AUTENTICAÇÃO
+  // AUTENTICAÇÃO (EXCLUSIVO ADMIN)
   // =========================
+  function showSetup() {
+    $('appView').classList.add('hidden');
+    $('loginView').classList.add('hidden');
+    $('setupView').classList.remove('hidden');
+    $('setupError').classList.add('hidden');
+    updateStrengthUi('', 'setupStrengthFill', 'setupStrengthLabel', 'setupPwChecklist');
+    setTimeout(() => $('setupPassword').focus(), 50);
+  }
+
   function showLogin() {
     $('appView').classList.add('hidden');
+    $('setupView').classList.add('hidden');
     $('loginView').classList.remove('hidden');
     $('loginError').classList.add('hidden');
     setTimeout(() => $('loginUsername').focus(), 50);
   }
 
   function showApp() {
+    $('setupView').classList.add('hidden');
     $('loginView').classList.add('hidden');
     $('appView').classList.remove('hidden');
 
-    const roleLabel = ROLE_LABELS[state.user.role] || state.user.role;
-    $('userBadge').textContent = `${state.user.displayName} • ${roleLabel}`;
+    $('userBadge').textContent = `${state.user.displayName} (@${state.user.username})`;
     $('todayBanner').textContent = `Hoje: ${state.today.day} de ${MONTHS_CAP[state.today.month - 1]} de ${state.today.year}`;
-
-    if (canEdit()) {
-      $('editModeTip').textContent = 'Clique em qualquer quadrado ou no lema superior para editar';
-      $('verseEditBadge').classList.remove('hidden');
-      $('calVerseBox').classList.remove('readonly');
-    } else {
-      $('editModeTip').textContent = 'Modo visualização — acesse como Editor ou Administrador para alterar';
-      $('verseEditBadge').classList.add('hidden');
-      $('calVerseBox').classList.add('readonly');
-    }
-
-    $('tabUsersBtn').classList.toggle('hidden', !isAdmin());
-    $('tabBackupBtn').classList.toggle('hidden', !canEdit());
-    $('restoreBackupBox').classList.toggle('hidden', !isAdmin());
+    $('editModeTip').textContent = 'Clique em qualquer quadrado ou no lema superior para editar';
+    $('verseEditBadge').classList.remove('hidden');
+    $('calVerseBox').classList.remove('readonly');
 
     loadMonth(state.viewYear, state.viewMonth);
   }
 
   async function initSession() {
     try {
+      const status = await apiFetch('/api/auth/status');
+      if (status.setupRequired) {
+        setStoredToken('');
+        showSetup();
+        return;
+      }
+    } catch {}
+
+    try {
       const data = await apiFetch('/api/me');
       state.user = data.user;
+      state.passwordUpdatedAt = data.passwordUpdatedAt || null;
       if (data.serverToday) {
         state.today = data.serverToday;
         state.viewYear = data.serverToday.year;
@@ -874,85 +929,8 @@
   }
 
   // =========================
-  // CONTA, USUÁRIOS & BACKUP
+  // SEGURANÇA DO ADMIN & BACKUP
   // =========================
-  async function loadUsersList() {
-    if (!isAdmin()) return;
-    const list = $('usersList');
-    list.innerHTML = '<div class="empty-state">Carregando usuários...</div>';
-    try {
-      const data = await apiFetch('/api/users');
-      list.innerHTML = '';
-      for (const u of data.users) {
-        const row = document.createElement('div');
-        row.className = 'user-row';
-
-        const info = document.createElement('div');
-        info.className = 'user-row-info';
-
-        const nameLine = document.createElement('div');
-        nameLine.className = 'user-row-name';
-        nameLine.textContent = u.displayName;
-
-        const badge = document.createElement('span');
-        badge.className = `role-badge role-${u.role}`;
-        badge.textContent = ROLE_LABELS[u.role] || u.role;
-        nameLine.appendChild(badge);
-
-        const meta = document.createElement('div');
-        meta.className = 'user-row-meta';
-        meta.textContent = `Login: @${u.username}`;
-
-        info.append(nameLine, meta);
-
-        const actions = document.createElement('div');
-        actions.className = 'user-row-actions';
-
-        const resetBtn = document.createElement('button');
-        resetBtn.type = 'button';
-        resetBtn.className = 'btn btn-outline';
-        resetBtn.textContent = 'Redefinir senha';
-        resetBtn.addEventListener('click', async () => {
-          const newPw = window.prompt(`Digite a nova senha para "${u.username}" (mín. 4 caracteres):`);
-          if (!newPw) return;
-          try {
-            await apiFetch(`/api/users/${encodeURIComponent(u.username)}`, {
-              method: 'PUT',
-              body: JSON.stringify({ password: newPw }),
-            });
-            showToast(`Senha de ${u.username} redefinida!`, 'success');
-          } catch (err) {
-            showToast(err.message, 'error');
-          }
-        });
-        actions.appendChild(resetBtn);
-
-        if (u.username !== state.user.username) {
-          const delBtn = document.createElement('button');
-          delBtn.type = 'button';
-          delBtn.className = 'btn btn-danger-outline';
-          delBtn.textContent = 'Excluir';
-          delBtn.addEventListener('click', async () => {
-            if (!window.confirm(`Tem certeza que deseja excluir o usuário "${u.username}"?`)) return;
-            try {
-              await apiFetch(`/api/users/${encodeURIComponent(u.username)}`, { method: 'DELETE' });
-              showToast('Usuário excluído.', 'success');
-              loadUsersList();
-            } catch (err) {
-              showToast(err.message, 'error');
-            }
-          });
-          actions.appendChild(delBtn);
-        }
-
-        row.append(info, actions);
-        list.appendChild(row);
-      }
-    } catch (err) {
-      list.innerHTML = `<div class="empty-state">${err.message}</div>`;
-    }
-  }
-
   function switchTab(tabId) {
     document.querySelectorAll('.tab-btn').forEach((b) => {
       b.classList.toggle('active', b.dataset.tab === tabId);
@@ -960,52 +938,117 @@
     document.querySelectorAll('.tab-panel').forEach((p) => {
       p.classList.toggle('active', p.id === tabId);
     });
-    if (tabId === 'tabUsers') {
-      loadUsersList();
-    }
+  }
+
+  function showEnvHashHint(hashVal) {
+    if (!hashVal) return;
+    $('envHashInput').value = hashVal;
+    $('envHashBox').classList.remove('hidden');
+  }
+
+  function openSecurityModal() {
+    $('secUsername').value = state.user?.username || 'admin';
+    $('secDisplayName').value = state.user?.displayName || 'Administrador';
+    $('curPass').value = '';
+    $('newPass').value = '';
+    $('confirmPass').value = '';
+    $('changePassError').classList.add('hidden');
+    updateStrengthUi('', 'changeStrengthFill', 'changeStrengthLabel', 'changePwChecklist');
+    $('passwordUpdatedMeta').textContent = state.passwordUpdatedAt
+      ? `Última alteração de senha em ${formatDateTimePt(state.passwordUpdatedAt)}`
+      : '';
+    switchTab('tabPassword');
+    openModal('securityModal');
   }
 
   // =========================
   // LISTENERS DE EVENTOS
   // =========================
   function bindEvents() {
-    // Login form
+    // Alternar visibilidade de qualquer campo de senha
+    document.querySelectorAll('.toggle-pw-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const inp = $(btn.dataset.target);
+        if (inp) inp.type = inp.type === 'password' ? 'text' : 'password';
+      });
+    });
+
+    // Medidores de força de senha ao vivo
+    $('setupPassword').addEventListener('input', (e) => {
+      updateStrengthUi(e.target.value, 'setupStrengthFill', 'setupStrengthLabel', 'setupPwChecklist');
+    });
+    $('newPass').addEventListener('input', (e) => {
+      updateStrengthUi(e.target.value, 'changeStrengthFill', 'changeStrengthLabel', 'changePwChecklist');
+    });
+
+    // Configuração inicial — Criar Senha do Administrador
+    $('setupForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errBox = $('setupError');
+      errBox.classList.add('hidden');
+
+      const username = $('setupUsername').value.trim();
+      const displayName = $('setupDisplayName').value.trim();
+      const password = $('setupPassword').value;
+      const confirm = $('setupPasswordConfirm').value;
+
+      const check = evaluatePasswordRules(password);
+      if (!check.allMet) {
+        errBox.textContent = 'A senha precisa atender a todos os 5 requisitos de segurança listados acima.';
+        errBox.classList.remove('hidden');
+        return;
+      }
+      if (password !== confirm) {
+        errBox.textContent = 'A confirmação da senha não confere.';
+        errBox.classList.remove('hidden');
+        return;
+      }
+
+      $('setupSubmitBtn').disabled = true;
+      try {
+        const res = await apiFetch('/api/auth/setup', {
+          method: 'POST',
+          body: JSON.stringify({ username, displayName, password }),
+        });
+        if (res.token) setStoredToken(res.token);
+        if (res.envHashHint) showEnvHashHint(res.envHashHint);
+        $('setupPassword').value = '';
+        $('setupPasswordConfirm').value = '';
+        await initSession();
+        showToast('Senha do administrador criada com segurança!', 'success');
+      } catch (err) {
+        errBox.textContent = err.message;
+        errBox.classList.remove('hidden');
+      } finally {
+        $('setupSubmitBtn').disabled = false;
+      }
+    });
+
+    // Login exclusivo do Administrador
     $('loginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const errBox = $('loginError');
       errBox.classList.add('hidden');
       const username = $('loginUsername').value.trim();
       const password = $('loginPassword').value;
+      const remember = $('loginRemember').checked;
 
       $('loginSubmitBtn').disabled = true;
       try {
         const res = await apiFetch('/api/login', {
           method: 'POST',
-          body: JSON.stringify({ username, password }),
+          body: JSON.stringify({ username, password, remember }),
         });
         if (res.token) setStoredToken(res.token);
         $('loginPassword').value = '';
         await initSession();
-        showToast('Bem-vindo ao Calendário!', 'success');
+        showToast('Acesso administrativo autorizado.', 'success');
       } catch (err) {
         errBox.textContent = err.message;
         errBox.classList.remove('hidden');
       } finally {
         $('loginSubmitBtn').disabled = false;
       }
-    });
-
-    $('togglePasswordBtn').addEventListener('click', () => {
-      const inp = $('loginPassword');
-      inp.type = inp.type === 'password' ? 'text' : 'password';
-    });
-
-    document.querySelectorAll('.hint-chip').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        $('loginUsername').value = btn.dataset.u;
-        $('loginPassword').value = btn.dataset.p;
-        $('loginUsername').focus();
-      });
     });
 
     // Logout
@@ -1133,11 +1176,8 @@
       if (e.key === 'Enter') performSearch();
     });
 
-    // Conta / Usuários / Backup
-    $('openUsersBtn').addEventListener('click', () => {
-      switchTab('tabPassword');
-      openModal('usersModal');
-    });
+    // Segurança do Administrador & Backup
+    $('openSecurityBtn').addEventListener('click', openSecurityModal);
 
     document.querySelectorAll('.tab-btn').forEach((btn) => {
       btn.addEventListener('click', () => switchTab(btn.dataset.tab));
@@ -1145,42 +1185,79 @@
 
     $('changePasswordForm').addEventListener('submit', async (e) => {
       e.preventDefault();
+      const errBox = $('changePassError');
+      errBox.classList.add('hidden');
+
+      const username = $('secUsername').value.trim();
+      const displayName = $('secDisplayName').value.trim();
       const currentPassword = $('curPass').value;
       const newPassword = $('newPass').value;
       const confirmPass = $('confirmPass').value;
+
+      const check = evaluatePasswordRules(newPassword);
+      if (!check.allMet) {
+        errBox.textContent = 'A nova senha precisa atender a todos os 5 requisitos de segurança.';
+        errBox.classList.remove('hidden');
+        return;
+      }
       if (newPassword !== confirmPass) {
-        showToast('A confirmação da nova senha não confere.', 'error');
+        errBox.textContent = 'A confirmação da nova senha não confere.';
+        errBox.classList.remove('hidden');
+        return;
+      }
+
+      try {
+        const res = await apiFetch('/api/me/password', {
+          method: 'PUT',
+          body: JSON.stringify({ username, displayName, currentPassword, newPassword }),
+        });
+        if (res.token) setStoredToken(res.token);
+        if (res.user) {
+          state.user = res.user;
+          $('userBadge').textContent = `${state.user.displayName} (@${state.user.username})`;
+        }
+        if (res.passwordUpdatedAt) {
+          state.passwordUpdatedAt = res.passwordUpdatedAt;
+          $('passwordUpdatedMeta').textContent = `Última alteração de senha em ${formatDateTimePt(state.passwordUpdatedAt)}`;
+        }
+        if (res.envHashHint) showEnvHashHint(res.envHashHint);
+        $('curPass').value = '';
+        $('newPass').value = '';
+        $('confirmPass').value = '';
+        updateStrengthUi('', 'changeStrengthFill', 'changeStrengthLabel', 'changePwChecklist');
+        showToast(res.message || 'Senha atualizada com segurança!', 'success');
+      } catch (err) {
+        errBox.textContent = err.message;
+        errBox.classList.remove('hidden');
+      }
+    });
+
+    $('revokeAllBtn').addEventListener('click', async () => {
+      if (!window.confirm('Encerrar todas as sessões ativas em todos os navegadores? Você precisará fazer login novamente.')) {
         return;
       }
       try {
-        await apiFetch('/api/me/password', {
-          method: 'PUT',
-          body: JSON.stringify({ currentPassword, newPassword }),
-        });
-        $('changePasswordForm').reset();
-        showToast('Senha atualizada com sucesso!', 'success');
+        await apiFetch('/api/auth/revoke-all', { method: 'POST' });
+        setStoredToken('');
+        state.user = null;
+        closeModal('securityModal');
+        showLogin();
+        showToast('Todas as sessões foram encerradas.', 'success');
       } catch (err) {
         showToast(err.message, 'error');
       }
     });
 
-    $('createUserForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
+    $('copyEnvHashBtn').addEventListener('click', async () => {
+      const val = $('envHashInput').value;
+      if (!val) return;
       try {
-        await apiFetch('/api/users', {
-          method: 'POST',
-          body: JSON.stringify({
-            username: $('nuUsername').value,
-            displayName: $('nuDisplay').value,
-            role: $('nuRole').value,
-            password: $('nuPassword').value,
-          }),
-        });
-        $('createUserForm').reset();
-        showToast('Novo usuário cadastrado!', 'success');
-        loadUsersList();
-      } catch (err) {
-        showToast(err.message, 'error');
+        await navigator.clipboard.writeText(val);
+        showToast('Hash copiado para a área de transferência!', 'success');
+      } catch {
+        $('envHashInput').select();
+        document.execCommand('copy');
+        showToast('Hash copiado!', 'success');
       }
     });
 
@@ -1212,10 +1289,11 @@
       try {
         const text = await file.text();
         const json = JSON.parse(text);
-        await apiFetch('/api/restore', {
+        const res = await apiFetch('/api/restore', {
           method: 'POST',
           body: JSON.stringify(json),
         });
+        if (json.months) writeCachedMonths(json.months, res.updatedAt || Date.now());
         showToast('Backup restaurado com sucesso!', 'success');
         loadMonth(state.viewYear, state.viewMonth);
       } catch (err) {

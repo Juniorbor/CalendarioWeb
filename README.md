@@ -1,31 +1,21 @@
-# Calendário Mensal Editável (Sistema Web)
+# Calendário Mensal — Acesso Administrativo
 
-Sistema web completo inspirado na tabela mensal litúrgica, com **cores fortes e coloridas**, cálculo automático de datas/meses/anos atuais e controle de acesso por **usuário e senha**.
+Sistema web profissional de calendário mensal editável com **acesso exclusivo do Administrador**, política de **senha forte**, proteção contra força bruta e **miniaturas temáticas** ao lado dos eventos e feriados.
 
-## Como executar
+## Segurança implementada
 
-No terminal, dentro desta pasta:
+- **Acesso exclusivo do Administrador**: sem contas públicas ou senhas padrão expostas.
+- **Primeiro acesso seguro**: ao abrir pela primeira vez, o administrador cria seu login e uma **senha forte obrigatória** (mínimo 8 caracteres, letra maiúscula, minúscula, número e caractere especial), com medidor de força em tempo real.
+- **Criptografia forte**: senhas armazenadas com `scrypt` (`N=16384`, salt aleatório de 32 bytes) e comparação em tempo constante (`timingSafeEqual`).
+- **Proteção contra força bruta**: bloqueio automático de 15 minutos após 5 tentativas inválidas + atraso contra ataques automatizados.
+- **Alteração segura de senha e revogação de sessões**: ao alterar a senha ou clicar em **Encerrar todas as sessões**, um novo `sessionNonce` é gerado e todas as sessões anteriores são invalidadas instantaneamente.
+- **Cookies e cabeçalhos de segurança**: cookie `HttpOnly; SameSite=Strict` (+ `Secure` em HTTPS) e cabeçalhos `X-Content-Type-Options`, `X-Frame-Options: DENY`, `Referrer-Policy` e `Permissions-Policy`.
+- **Variáveis de ambiente opcionais na Vercel**: suporte a `ADMIN_USERNAME`, `ADMIN_PASSWORD_HASH` e `TOKEN_SECRET` para fixar permanentemente as credenciais na nuvem.
+
+## Execução local
 
 ```bash
 npm start
 ```
 
-Depois acesse no navegador: **http://127.0.0.1:3000**
-
-## Usuários iniciais
-
-| Perfil | Usuário | Senha | Permissões |
-|---|---|---|---|
-| **Administrador** | `admin` | `admin123` | Visualiza, edita todos os quadrados/versículos, gerencia usuários e faz backup/restauração |
-| **Editor** | `editor` | `editor123` | Visualiza, edita quadrados/versículos e exporta backup |
-| **Visualizador** | `visitante` | `visitante123` | Somente leitura |
-
-> Você pode alterar as senhas e criar novos usuários diretamente pelo botão **👤 Conta** no topo do sistema.
-
-## Funcionalidades
-
-- **Datas, meses e anos reais**: abre automaticamente no mês/ano atual, com destaque no dia de **HOJE** e cálculo automático de todos os dias (incluindo anos bissextos e feriados nacionais brasileiros).
-- **Fidelidade à tabela original**: cabeçalho triplo (`MÊS | Versículo/Lema do Mês | ANO`), 7 colunas (`DOMINGO` a `SÁBADO`), numeração `1.`, `2.`, `3.`, cores litúrgicas no canto superior direito e quadrados extras (antes do dia 1 e após o último dia) editáveis para citações/reflexões.
-- **Cores fortes e vibrantes**: cada dia da semana com cor marcante no cabeçalho, cores litúrgicas vivas (`Branco`, `Verde`, `Vermelho`, `Roxo`, `Rosa`, `Dourado`, `Preto`) e 9 temas de cores fortes selecionáveis por quadrado.
-- **Persistência em arquivo local**: dados salvos em `data/db.json` com senhas protegidas por hash `scrypt`.
-- **Impressão colorida**: botão **Imprimir** formatado em folha paisagem (A4 landscape) mantendo todas as cores.
+Acesse: **http://127.0.0.1:3000**

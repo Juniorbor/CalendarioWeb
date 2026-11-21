@@ -4,11 +4,17 @@ const crypto = require('crypto');
 
 const IS_SERVERLESS = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
 const DB_PATH = IS_SERVERLESS
-  ? path.join('/tmp', 'calendario_web_db.json')
+  ? path.join('/tmp', 'calendario_web_admin_db.json')
   : path.join(__dirname, '..', 'data', 'db.json');
 
-const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 dias
-const TOKEN_SECRET = process.env.TOKEN_SECRET || 'calendario-web-secret-hmac-2026-juniorbor';
+const SESSION_SHORT_MS = 1000 * 60 * 60 * 12; // 12 horas
+const SESSION_LONG_MS = 1000 * 60 * 60 * 24 * 7; // 7 dias (se "Manter conectado")
+const TOKEN_SECRET = process.env.TOKEN_SECRET || 'calendario-web-admin-hmac-secret-2026-v2';
+
+// Proteção contra força bruta (5 tentativas falhas -> bloqueio de 15 min)
+const MAX_LOGIN_ATTEMPTS = 5;
+const LOCKOUT_WINDOW_MS = 15 * 60 * 1000;
+const loginAttempts = new Map();
 
 function ensureDir(dir) {
   if (!fs.existsSync(dir)) {
@@ -17,33 +23,74 @@ function ensureDir(dir) {
 }
 
 function hashPassword(password, saltHex) {
-  const salt = saltHex || crypto.randomBytes(16).toString('hex');
-  const derived = crypto.scryptSync(password, salt, 64).toString('hex');
-  return `${salt}:${derived}`;
+  const salt = saltHex || crypto.randomBytes(32).toString('hex');
+  const derived = crypto.scryptSync(password, salt, 64, { N: 16384, r: 8, p: 1 }).toString('hex');
+  return `scrypt$${salt}$${derived}`;
 }
 
 function verifyPassword(password, storedHash) {
-  if (!storedHash || !storedHash.includes(':')) return false;
-  const [salt, keyHex] = storedHash.split(':');
-  const derived = crypto.scryptSync(password, salt, 64);
-  const keyBuf = Buffer.from(keyHex, 'hex');
-  if (derived.length !== keyBuf.length) return false;
-  return crypto.timingSafeEqual(derived, keyBuf);
+  if (!storedHash || typeof storedHash !== 'string') return false;
+  let salt;
+  let keyHex;
+  if (storedHash.startsWith('scrypt$')) {
+    const parts = storedHash.split('$');
+    if (parts.length !== 3) return false;
+    salt = parts[1];
+    keyHex = parts[2];
+  } else if (storedHash.includes(':')) {
+    [salt, keyHex] = storedHash.split(':');
+  } else {
+    return false;
+  }
+  try {
+    const derived = crypto.scryptSync(password, salt, 64, { N: 16384, r: 8, p: 1 });
+    const keyBuf = Buffer.from(keyHex, 'hex');
+    if (derived.length !== keyBuf.length) return false;
+    return crypto.timingSafeEqual(derived, keyBuf);
+  } catch {
+    return false;
+  }
 }
 
-function createSignedToken(user) {
+function validateStrongPassword(password) {
+  if (typeof password !== 'string') {
+    return 'Informe uma senha válida.';
+  }
+  if (password.length < 8) {
+    return 'A senha deve ter pelo menos 8 caracteres.';
+  }
+  if (password.length > 128) {
+    return 'A senha deve ter no máximo 128 caracteres.';
+  }
+  if (!/[A-Z]/.test(password)) {
+    return 'A senha deve conter pelo menos uma letra maiúscula (A–Z).';
+  }
+  if (!/[a-z]/.test(password)) {
+    return 'A senha deve conter pelo menos uma letra minúscula (a–z).';
+  }
+  if (!/[0-9]/.test(password)) {
+    return 'A senha deve conter pelo menos um número (0–9).';
+  }
+  if (!/[^A-Za-z0-9\s]/.test(password)) {
+    return 'A senha deve conter pelo menos um caractere especial (ex.: ! @ # $ % & *).';
+  }
+  return null;
+}
+
+function createSignedToken(admin, ttlMs = SESSION_SHORT_MS) {
   const payload = JSON.stringify({
-    u: user.username,
-    r: user.role,
-    d: user.displayName,
-    exp: Date.now() + SESSION_TTL_MS,
+    u: admin.username,
+    d: admin.displayName,
+    r: 'admin',
+    n: admin.sessionNonce,
+    exp: Date.now() + ttlMs,
   });
   const base64Payload = Buffer.from(payload, 'utf8').toString('base64url');
   const sig = crypto.createHmac('sha256', TOKEN_SECRET).update(base64Payload).digest('base64url');
   return `${base64Payload}.${sig}`;
 }
 
-function verifySignedToken(token) {
+function verifySignedToken(token, expectedNonce) {
   if (!token || typeof token !== 'string' || !token.includes('.')) return null;
   const [base64Payload, sig] = token.split('.');
   if (!base64Payload || !sig) return null;
@@ -53,14 +100,60 @@ function verifySignedToken(token) {
   if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) return null;
   try {
     const data = JSON.parse(Buffer.from(base64Payload, 'base64url').toString('utf8'));
-    if (!data || Date.now() > data.exp || !data.u) return null;
-    return { username: data.u, role: data.r, displayName: data.d };
+    if (!data || Date.now() > data.exp || data.r !== 'admin' || !data.u) return null;
+    if (expectedNonce && data.n !== expectedNonce) return null;
+    return { username: data.u, displayName: data.d || 'Administrador', role: 'admin' };
   } catch {
     return null;
   }
 }
 
-function createInitialDb() {
+function getClientIp(req) {
+  const fwd = req.headers['x-forwarded-for'];
+  if (typeof fwd === 'string' && fwd.trim()) {
+    return fwd.split(',')[0].trim();
+  }
+  return req.socket?.remoteAddress || 'unknown';
+}
+
+function checkRateLimit(ip) {
+  const now = Date.now();
+  const entry = loginAttempts.get(ip);
+  if (!entry) return { blocked: false, remainingMs: 0 };
+  if (entry.lockUntil && entry.lockUntil > now) {
+    return { blocked: true, remainingMs: entry.lockUntil - now };
+  }
+  if (now - entry.firstAttemptAt > LOCKOUT_WINDOW_MS) {
+    loginAttempts.delete(ip);
+    return { blocked: false, remainingMs: 0 };
+  }
+  return { blocked: false, remainingMs: 0 };
+}
+
+function recordFailedLogin(ip) {
+  const now = Date.now();
+  const entry = loginAttempts.get(ip);
+  if (!entry || now - entry.firstAttemptAt > LOCKOUT_WINDOW_MS) {
+    loginAttempts.set(ip, { count: 1, firstAttemptAt: now, lockUntil: 0 });
+    return MAX_LOGIN_ATTEMPTS - 1;
+  }
+  entry.count += 1;
+  if (entry.count >= MAX_LOGIN_ATTEMPTS) {
+    entry.lockUntil = now + LOCKOUT_WINDOW_MS;
+  }
+  loginAttempts.set(ip, entry);
+  return Math.max(0, MAX_LOGIN_ATTEMPTS - entry.count);
+}
+
+function clearFailedLogins(ip) {
+  loginAttempts.delete(ip);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function createSeedMonths() {
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth() + 1;
@@ -183,32 +276,25 @@ function createInitialDb() {
     };
   }
 
+  return months;
+}
+
+function createInitialDb() {
+  const envUser = (process.env.ADMIN_USERNAME || 'admin').trim().toLowerCase();
+  const envHash = (process.env.ADMIN_PASSWORD_HASH || '').trim();
+  const hasEnvPassword = Boolean(envHash && (envHash.startsWith('scrypt$') || envHash.includes(':')));
+
   return {
     updatedAt: 0,
-    users: [
-      {
-        username: 'admin',
-        displayName: 'Administrador',
-        role: 'admin',
-        passwordHash: hashPassword('admin123'),
-        createdAt: new Date().toISOString(),
-      },
-      {
-        username: 'editor',
-        displayName: 'Editor do Calendário',
-        role: 'editor',
-        passwordHash: hashPassword('editor123'),
-        createdAt: new Date().toISOString(),
-      },
-      {
-        username: 'visitante',
-        displayName: 'Visualizador',
-        role: 'viewer',
-        passwordHash: hashPassword('visitante123'),
-        createdAt: new Date().toISOString(),
-      },
-    ],
-    months,
+    admin: {
+      username: envUser || 'admin',
+      displayName: 'Administrador',
+      passwordHash: hasEnvPassword ? envHash : '',
+      setupCompleted: hasEnvPassword,
+      sessionNonce: crypto.randomBytes(16).toString('hex'),
+      passwordUpdatedAt: hasEnvPassword ? new Date().toISOString() : null,
+    },
+    months: createSeedMonths(),
   };
 }
 
@@ -218,8 +304,20 @@ function loadDb() {
   if (memoryDb) return memoryDb;
   try {
     if (fs.existsSync(DB_PATH)) {
-      memoryDb = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
-      if (typeof memoryDb.updatedAt !== 'number') memoryDb.updatedAt = 0;
+      const loaded = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
+      // Migra banco antigo multi-usuário para formato exclusivo Admin (exigindo criação de senha segura)
+      if (!loaded.admin) {
+        const fresh = createInitialDb();
+        fresh.months = loaded.months || fresh.months;
+        fresh.updatedAt = typeof loaded.updatedAt === 'number' ? loaded.updatedAt : 0;
+        memoryDb = fresh;
+        saveDb(memoryDb);
+        return memoryDb;
+      }
+      if (!loaded.admin.sessionNonce) {
+        loaded.admin.sessionNonce = crypto.randomBytes(16).toString('hex');
+      }
+      memoryDb = loaded;
       return memoryDb;
     }
   } catch {}
@@ -257,28 +355,33 @@ function parseCookies(req) {
   return cookies;
 }
 
-function getAuthenticatedUser(req, db) {
+function getAuthenticatedAdmin(req, db) {
+  if (!db.admin || !db.admin.setupCompleted || !db.admin.passwordHash) return null;
   const authHeader = req.headers.authorization || '';
   let token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
   if (!token) {
     const cookies = parseCookies(req);
     token = cookies.cal_session || null;
   }
-  const verified = verifySignedToken(token);
+  const verified = verifySignedToken(token, db.admin.sessionNonce);
   if (!verified) return null;
-  const userRecord = db.users.find((u) => u.username === verified.username);
-  if (userRecord) {
-    return {
-      username: userRecord.username,
-      displayName: userRecord.displayName,
-      role: userRecord.role,
-    };
-  }
-  // Em serverless caso um usuário criado em outra instância esteja logado via token válido
-  return verified;
+  if (verified.username.toLowerCase() !== db.admin.username.toLowerCase()) return null;
+  return {
+    username: db.admin.username,
+    displayName: db.admin.displayName,
+    role: 'admin',
+  };
+}
+
+function applySecurityHeaders(res) {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
 }
 
 function sendJson(res, status, payload, extraHeaders = {}) {
+  applySecurityHeaders(res);
   res.statusCode = status;
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
@@ -340,7 +443,7 @@ function isValidCellKey(key) {
 
 function cookieFlags(maxAgeSec) {
   const secure = IS_SERVERLESS ? '; Secure' : '';
-  return `HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAgeSec}${secure}`;
+  return `HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAgeSec}${secure}`;
 }
 
 module.exports = async function handler(req, res) {
@@ -351,35 +454,125 @@ module.exports = async function handler(req, res) {
     const method = req.method;
 
     if (method === 'OPTIONS') {
+      applySecurityHeaders(res);
       res.statusCode = 200;
       return res.end();
     }
 
-    // POST /api/login
+    // GET /api/auth/status (informa se já existe senha criada ou se exige configuração inicial)
+    if (pathname === '/api/auth/status' && method === 'GET') {
+      const setupRequired = !db.admin || !db.admin.setupCompleted || !db.admin.passwordHash;
+      return sendJson(res, 200, {
+        setupRequired,
+        adminOnly: true,
+        isServerless: IS_SERVERLESS,
+      });
+    }
+
+    // POST /api/auth/setup (criação segura da senha do Administrador no primeiro acesso)
+    if (pathname === '/api/auth/setup' && method === 'POST') {
+      if (db.admin && db.admin.setupCompleted && db.admin.passwordHash) {
+        return sendJson(res, 403, { error: 'A senha do administrador já foi configurada. Faça login.' });
+      }
+      const body = await readJsonBody(req);
+      const username = sanitizeText(body.username || 'admin', 40)
+        .toLowerCase()
+        .replace(/[^a-z0-9._-]/g, '');
+      const displayName = sanitizeText(body.displayName || 'Administrador', 80) || 'Administrador';
+      const password = typeof body.password === 'string' ? body.password : '';
+
+      if (username.length < 3) {
+        return sendJson(res, 400, { error: 'O usuário deve ter pelo menos 3 caracteres (letras, números, . _ -).' });
+      }
+      const pwError = validateStrongPassword(password);
+      if (pwError) {
+        return sendJson(res, 400, { error: pwError });
+      }
+
+      const passwordHash = hashPassword(password);
+      db.admin = {
+        username,
+        displayName,
+        passwordHash,
+        setupCompleted: true,
+        sessionNonce: crypto.randomBytes(16).toString('hex'),
+        passwordUpdatedAt: new Date().toISOString(),
+      };
+      saveDb(db);
+
+      const token = createSignedToken(db.admin, SESSION_SHORT_MS);
+      return sendJson(
+        res,
+        201,
+        {
+          ok: true,
+          token,
+          user: {
+            username: db.admin.username,
+            displayName: db.admin.displayName,
+            role: 'admin',
+          },
+          envHashHint: passwordHash,
+        },
+        {
+          'Set-Cookie': `cal_session=${encodeURIComponent(token)}; ${cookieFlags(Math.floor(SESSION_SHORT_MS / 1000))}`,
+        }
+      );
+    }
+
+    // POST /api/login (somente Administrador, com proteção contra força bruta)
     if (pathname === '/api/login' && method === 'POST') {
+      if (!db.admin || !db.admin.setupCompleted || !db.admin.passwordHash) {
+        return sendJson(res, 409, {
+          error: 'Crie primeiro a senha do administrador antes de fazer login.',
+          setupRequired: true,
+        });
+      }
+
+      const ip = getClientIp(req);
+      const rate = checkRateLimit(ip);
+      if (rate.blocked) {
+        const mins = Math.ceil(rate.remainingMs / 60000);
+        return sendJson(res, 429, {
+          error: `Muitas tentativas incorretas. Acesso temporariamente bloqueado por ${mins} minuto(s).`,
+        });
+      }
+
       const body = await readJsonBody(req);
       const username = sanitizeText(body.username, 60).toLowerCase();
       const password = typeof body.password === 'string' ? body.password : '';
-      const user = db.users.find((u) => u.username.toLowerCase() === username);
+      const remember = Boolean(body.remember);
 
-      if (!user || !verifyPassword(password, user.passwordHash)) {
-        return sendJson(res, 401, { error: 'Usuário ou senha inválidos.' });
+      const userMatches = username === db.admin.username.toLowerCase();
+      const passMatches = verifyPassword(password, db.admin.passwordHash);
+
+      if (!userMatches || !passMatches) {
+        await sleep(350);
+        const remaining = recordFailedLogin(ip);
+        const suffix =
+          remaining > 0
+            ? ` Restam ${remaining} tentativa(s) antes do bloqueio temporário.`
+            : ' Acesso bloqueado por 15 minutos por segurança.';
+        return sendJson(res, 401, { error: `Usuário ou senha inválidos.${suffix}` });
       }
 
-      const token = createSignedToken(user);
+      clearFailedLogins(ip);
+      const ttl = remember ? SESSION_LONG_MS : SESSION_SHORT_MS;
+      const token = createSignedToken(db.admin, ttl);
+
       return sendJson(
         res,
         200,
         {
           token,
           user: {
-            username: user.username,
-            displayName: user.displayName,
-            role: user.role,
+            username: db.admin.username,
+            displayName: db.admin.displayName,
+            role: 'admin',
           },
         },
         {
-          'Set-Cookie': `cal_session=${encodeURIComponent(token)}; ${cookieFlags(Math.floor(SESSION_TTL_MS / 1000))}`,
+          'Set-Cookie': `cal_session=${encodeURIComponent(token)}; ${cookieFlags(Math.floor(ttl / 1000))}`,
         }
       );
     }
@@ -396,24 +589,19 @@ module.exports = async function handler(req, res) {
       );
     }
 
-    // Demais rotas exigem autenticação
-    const authUser = getAuthenticatedUser(req, db);
-    if (!authUser) {
-      return sendJson(res, 401, { error: 'Não autenticado. Faça login para continuar.' });
+    // Todas as rotas abaixo exigem sessão válida do Administrador
+    const adminUser = getAuthenticatedAdmin(req, db);
+    if (!adminUser) {
+      return sendJson(res, 401, { error: 'Sessão inválida ou expirada. Faça login como administrador.' });
     }
-
-    const canEdit = authUser.role === 'admin' || authUser.role === 'editor';
-    const isAdmin = authUser.role === 'admin';
 
     // GET /api/me
     if (pathname === '/api/me' && method === 'GET') {
       const now = new Date();
       return sendJson(res, 200, {
-        user: {
-          username: authUser.username,
-          displayName: authUser.displayName,
-          role: authUser.role,
-        },
+        user: adminUser,
+        passwordUpdatedAt: db.admin.passwordUpdatedAt,
+        isServerless: IS_SERVERLESS,
         updatedAt: db.updatedAt || 0,
         serverToday: {
           year: now.getFullYear(),
@@ -423,12 +611,79 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    // POST /api/calendar/sync (sincronização híbrida para ambiente serverless)
+    // PUT /api/me/password (alteração segura de senha + invalidação imediata de sessões antigas)
+    if (pathname === '/api/me/password' && method === 'PUT') {
+      const body = await readJsonBody(req);
+      const currentPassword = typeof body.currentPassword === 'string' ? body.currentPassword : '';
+      const newPassword = typeof body.newPassword === 'string' ? body.newPassword : '';
+      const newUsernameRaw = body.username !== undefined ? sanitizeText(body.username, 40).toLowerCase().replace(/[^a-z0-9._-]/g, '') : '';
+      const newDisplayName = body.displayName !== undefined ? sanitizeText(body.displayName, 80) : '';
+
+      if (!verifyPassword(currentPassword, db.admin.passwordHash)) {
+        await sleep(300);
+        return sendJson(res, 400, { error: 'A senha atual informada está incorreta.' });
+      }
+      if (newPassword === currentPassword) {
+        return sendJson(res, 400, { error: 'A nova senha deve ser diferente da senha atual.' });
+      }
+      const pwError = validateStrongPassword(newPassword);
+      if (pwError) {
+        return sendJson(res, 400, { error: pwError });
+      }
+      if (newUsernameRaw && newUsernameRaw.length < 3) {
+        return sendJson(res, 400, { error: 'O usuário deve ter pelo menos 3 caracteres.' });
+      }
+
+      const newHash = hashPassword(newPassword);
+      if (newUsernameRaw) db.admin.username = newUsernameRaw;
+      if (newDisplayName) db.admin.displayName = newDisplayName;
+      db.admin.passwordHash = newHash;
+      db.admin.passwordUpdatedAt = new Date().toISOString();
+      // Rotaciona o nonce: invalida instantaneamente qualquer sessão antiga em outros navegadores
+      db.admin.sessionNonce = crypto.randomBytes(16).toString('hex');
+      saveDb(db);
+
+      const freshToken = createSignedToken(db.admin, SESSION_SHORT_MS);
+      return sendJson(
+        res,
+        200,
+        {
+          ok: true,
+          token: freshToken,
+          user: {
+            username: db.admin.username,
+            displayName: db.admin.displayName,
+            role: 'admin',
+          },
+          passwordUpdatedAt: db.admin.passwordUpdatedAt,
+          envHashHint: newHash,
+          message: 'Senha atualizada com segurança. Todas as sessões anteriores foram encerradas.',
+        },
+        {
+          'Set-Cookie': `cal_session=${encodeURIComponent(freshToken)}; ${cookieFlags(Math.floor(SESSION_SHORT_MS / 1000))}`,
+        }
+      );
+    }
+
+    // POST /api/auth/revoke-all (encerra todas as sessões em todos os dispositivos)
+    if (pathname === '/api/auth/revoke-all' && method === 'POST') {
+      db.admin.sessionNonce = crypto.randomBytes(16).toString('hex');
+      saveDb(db);
+      return sendJson(
+        res,
+        200,
+        { ok: true, message: 'Todas as sessões foram encerradas.' },
+        {
+          'Set-Cookie': `cal_session=; ${cookieFlags(0)}`,
+        }
+      );
+    }
+
+    // POST /api/calendar/sync
     if (pathname === '/api/calendar/sync' && method === 'POST') {
       const body = await readJsonBody(req);
       const clientUpdatedAt = Number(body.updatedAt) || 0;
       if (
-        canEdit &&
         body.months &&
         typeof body.months === 'object' &&
         !Array.isArray(body.months) &&
@@ -443,23 +698,6 @@ module.exports = async function handler(req, res) {
         updatedAt: db.updatedAt || 0,
         months: db.months,
       });
-    }
-
-    // PUT /api/me/password
-    if (pathname === '/api/me/password' && method === 'PUT') {
-      const body = await readJsonBody(req);
-      const currentPassword = typeof body.currentPassword === 'string' ? body.currentPassword : '';
-      const newPassword = typeof body.newPassword === 'string' ? body.newPassword : '';
-      if (newPassword.length < 4) {
-        return sendJson(res, 400, { error: 'A nova senha deve ter pelo menos 4 caracteres.' });
-      }
-      const userRecord = db.users.find((u) => u.username === authUser.username);
-      if (!userRecord || !verifyPassword(currentPassword, userRecord.passwordHash)) {
-        return sendJson(res, 400, { error: 'Senha atual incorreta.' });
-      }
-      userRecord.passwordHash = hashPassword(newPassword);
-      saveDb(db);
-      return sendJson(res, 200, { ok: true, message: 'Senha alterada com sucesso.' });
     }
 
     // GET /api/calendar/search
@@ -517,7 +755,6 @@ module.exports = async function handler(req, res) {
     // PUT /api/calendar/:year/:month/verse
     const verseMatch = pathname.match(/^\/api\/calendar\/(\d{4})\/(\d{1,2})\/verse$/);
     if (verseMatch && method === 'PUT') {
-      if (!canEdit) return sendJson(res, 403, { error: 'Seu perfil permite apenas visualização.' });
       const monthKey = isValidMonthKey(verseMatch[1], verseMatch[2]);
       if (!monthKey) return sendJson(res, 400, { error: 'Ano ou mês inválido.' });
       const body = await readJsonBody(req);
@@ -526,7 +763,7 @@ module.exports = async function handler(req, res) {
         db.months[monthKey] = { verse: '', cells: {} };
       }
       db.months[monthKey].verse = verse;
-      db.months[monthKey].updatedBy = authUser.username;
+      db.months[monthKey].updatedBy = adminUser.username;
       db.months[monthKey].updatedAt = new Date().toISOString();
       db.updatedAt = Date.now();
       saveDb(db);
@@ -536,7 +773,6 @@ module.exports = async function handler(req, res) {
     // PUT /api/calendar/:year/:month/cell/:cellKey
     const cellMatch = pathname.match(/^\/api\/calendar\/(\d{4})\/(\d{1,2})\/cell\/([a-z0-9-]+)$/);
     if (cellMatch && method === 'PUT') {
-      if (!canEdit) return sendJson(res, 403, { error: 'Seu perfil permite apenas visualização.' });
       const monthKey = isValidMonthKey(cellMatch[1], cellMatch[2]);
       const cellKey = cellMatch[3];
       if (!monthKey || !isValidCellKey(cellKey)) {
@@ -565,7 +801,7 @@ module.exports = async function handler(req, res) {
         themeImage: sanitizeText(body.themeImage, 40).toLowerCase().replace(/[^a-z0-9_-]/g, ''),
         customImage,
         isQuote: Boolean(body.isQuote),
-        updatedBy: authUser.username,
+        updatedBy: adminUser.username,
         updatedAt: new Date().toISOString(),
       };
 
@@ -596,17 +832,15 @@ module.exports = async function handler(req, res) {
 
     // GET /api/backup
     if (pathname === '/api/backup' && method === 'GET') {
-      if (!canEdit) return sendJson(res, 403, { error: 'Sem permissão para exportar.' });
       return sendJson(res, 200, {
         exportedAt: new Date().toISOString(),
-        exportedBy: authUser.username,
+        exportedBy: adminUser.username,
         months: db.months,
       });
     }
 
     // POST /api/restore
     if (pathname === '/api/restore' && method === 'POST') {
-      if (!isAdmin) return sendJson(res, 403, { error: 'Apenas administradores podem restaurar backups.' });
       const body = await readJsonBody(req);
       if (!body || typeof body.months !== 'object' || Array.isArray(body.months)) {
         return sendJson(res, 400, { error: 'Arquivo de backup inválido.' });
@@ -615,106 +849,6 @@ module.exports = async function handler(req, res) {
       db.updatedAt = Date.now();
       saveDb(db);
       return sendJson(res, 200, { ok: true, count: Object.keys(db.months).length, updatedAt: db.updatedAt });
-    }
-
-    // GET /api/users
-    if (pathname === '/api/users' && method === 'GET') {
-      if (!isAdmin) return sendJson(res, 403, { error: 'Apenas administradores podem gerenciar usuários.' });
-      return sendJson(res, 200, {
-        users: db.users.map((u) => ({
-          username: u.username,
-          displayName: u.displayName,
-          role: u.role,
-          createdAt: u.createdAt,
-        })),
-      });
-    }
-
-    // POST /api/users
-    if (pathname === '/api/users' && method === 'POST') {
-      if (!isAdmin) return sendJson(res, 403, { error: 'Apenas administradores podem criar usuários.' });
-      const body = await readJsonBody(req);
-      const username = sanitizeText(body.username, 40).toLowerCase().replace(/[^a-z0-9._-]/g, '');
-      const displayName = sanitizeText(body.displayName, 80) || username;
-      const role = ['admin', 'editor', 'viewer'].includes(body.role) ? body.role : 'editor';
-      const password = typeof body.password === 'string' ? body.password : '';
-
-      if (username.length < 3) {
-        return sendJson(res, 400, { error: 'Nome de usuário deve ter pelo menos 3 caracteres (letras, números, . _ -).' });
-      }
-      if (password.length < 4) {
-        return sendJson(res, 400, { error: 'A senha deve ter pelo menos 4 caracteres.' });
-      }
-      if (db.users.some((u) => u.username === username)) {
-        return sendJson(res, 409, { error: 'Já existe um usuário com este login.' });
-      }
-
-      db.users.push({
-        username,
-        displayName,
-        role,
-        passwordHash: hashPassword(password),
-        createdAt: new Date().toISOString(),
-      });
-      saveDb(db);
-      return sendJson(res, 201, { ok: true, user: { username, displayName, role } });
-    }
-
-    // PUT /api/users/:username
-    const userPutMatch = pathname.match(/^\/api\/users\/([a-z0-9._-]+)$/);
-    if (userPutMatch && method === 'PUT') {
-      if (!isAdmin) return sendJson(res, 403, { error: 'Apenas administradores podem alterar usuários.' });
-      const targetName = userPutMatch[1];
-      const target = db.users.find((u) => u.username === targetName);
-      if (!target) return sendJson(res, 404, { error: 'Usuário não encontrado.' });
-
-      const body = await readJsonBody(req);
-      if (body.displayName !== undefined) {
-        target.displayName = sanitizeText(body.displayName, 80) || target.username;
-      }
-      if (body.role && ['admin', 'editor', 'viewer'].includes(body.role)) {
-        if (target.role === 'admin' && body.role !== 'admin') {
-          const adminCount = db.users.filter((u) => u.role === 'admin').length;
-          if (adminCount <= 1) {
-            return sendJson(res, 400, { error: 'Não é possível remover o perfil do último administrador.' });
-          }
-        }
-        target.role = body.role;
-      }
-      if (typeof body.password === 'string' && body.password.length > 0) {
-        if (body.password.length < 4) {
-          return sendJson(res, 400, { error: 'A senha deve ter pelo menos 4 caracteres.' });
-        }
-        target.passwordHash = hashPassword(body.password);
-      }
-      saveDb(db);
-      return sendJson(res, 200, {
-        ok: true,
-        user: { username: target.username, displayName: target.displayName, role: target.role },
-      });
-    }
-
-    // DELETE /api/users/:username
-    const userDelMatch = pathname.match(/^\/api\/users\/([a-z0-9._-]+)$/);
-    if (userDelMatch && method === 'DELETE') {
-      if (!isAdmin) return sendJson(res, 403, { error: 'Apenas administradores podem excluir usuários.' });
-      const targetName = userDelMatch[1];
-      if (targetName === authUser.username) {
-        return sendJson(res, 400, { error: 'Você não pode excluir o próprio usuário logado.' });
-      }
-      const idx = db.users.findIndex((u) => u.username === targetName);
-      if (idx === -1) return sendJson(res, 404, { error: 'Usuário não encontrado.' });
-
-      if (db.users[idx].role === 'admin') {
-        const adminCount = db.users.filter((u) => u.role === 'admin').length;
-        if (adminCount <= 1) {
-          return sendJson(res, 400, { error: 'Não é possível excluir o último administrador.' });
-        }
-      }
-
-      db.users.splice(idx, 1);
-      saveDb(db);
-      return sendJson(res, 200, { ok: true });
     }
 
     return sendJson(res, 404, { error: 'Rota da API não encontrada.' });
