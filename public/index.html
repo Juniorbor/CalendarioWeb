@@ -81,6 +81,10 @@
         <button type="submit" id="setupSubmitBtn" class="btn btn-primary btn-block btn-lg">
           Criar Senha e Acessar
         </button>
+
+        <button type="button" id="backToLoginBtn" class="btn btn-outline btn-block">
+          Já tenho usuário e senha — Ir para o Login
+        </button>
       </form>
 
       <div class="login-footer-note">
@@ -101,7 +105,7 @@
           </svg>
         </div>
         <h1>Acesso Administrativo</h1>
-        <p>Informe as credenciais do administrador para acessar e editar o calendário.</p>
+        <p>Informe o usuário e a senha do administrador para acessar e editar o calendário.</p>
       </div>
 
       <form id="loginForm" class="login-form" autocomplete="on">
@@ -131,6 +135,10 @@
 
         <button type="submit" id="loginSubmitBtn" class="btn btn-primary btn-block btn-lg">
           Entrar
+        </button>
+
+        <button type="button" id="goToSetupBtn" class="btn btn-outline btn-block hidden">
+          Primeiro acesso? Criar senha do administrador
         </button>
       </form>
 

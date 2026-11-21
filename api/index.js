@@ -108,6 +108,55 @@ function verifySignedToken(token, expectedNonce) {
   }
 }
 
+function createCredProof(admin) {
+  const payload = JSON.stringify({
+    v: 1,
+    username: admin.username,
+    displayName: admin.displayName,
+    passwordHash: admin.passwordHash,
+    sessionNonce: admin.sessionNonce,
+    passwordUpdatedAt: admin.passwordUpdatedAt || null,
+  });
+  const b64 = Buffer.from(payload, 'utf8').toString('base64url');
+  const sig = crypto.createHmac('sha256', TOKEN_SECRET).update(`cred:${b64}`).digest('base64url');
+  return `${b64}.${sig}`;
+}
+
+function verifyCredProof(proof) {
+  if (!proof || typeof proof !== 'string' || !proof.includes('.')) return null;
+  const [b64, sig] = proof.split('.');
+  if (!b64 || !sig) return null;
+  const expectedSig = crypto.createHmac('sha256', TOKEN_SECRET).update(`cred:${b64}`).digest('base64url');
+  const sigBuf = Buffer.from(sig);
+  const expBuf = Buffer.from(expectedSig);
+  if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) return null;
+  try {
+    const data = JSON.parse(Buffer.from(b64, 'base64url').toString('utf8'));
+    if (!data || !data.username || !data.passwordHash) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+function maybeRestoreAdminFromProof(db, proof) {
+  const envHash = (process.env.ADMIN_PASSWORD_HASH || '').trim();
+  if (envHash) return false;
+  if (db.admin && db.admin.setupCompleted && db.admin.passwordHash) return false;
+  const verified = verifyCredProof(proof);
+  if (!verified) return false;
+  db.admin = {
+    username: verified.username,
+    displayName: verified.displayName || 'Administrador',
+    passwordHash: verified.passwordHash,
+    setupCompleted: true,
+    sessionNonce: verified.sessionNonce || crypto.randomBytes(16).toString('hex'),
+    passwordUpdatedAt: verified.passwordUpdatedAt || null,
+  };
+  saveDb(db);
+  return true;
+}
+
 function getClientIp(req) {
   const fwd = req.headers['x-forwarded-for'];
   if (typeof fwd === 'string' && fwd.trim()) {
@@ -449,6 +498,10 @@ function cookieFlags(maxAgeSec) {
 module.exports = async function handler(req, res) {
   try {
     const db = loadDb();
+    const headerProof = req.headers['x-admin-cred-proof'];
+    if (typeof headerProof === 'string' && headerProof) {
+      maybeRestoreAdminFromProof(db, headerProof);
+    }
     const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const pathname = urlObj.pathname;
     const method = req.method;
@@ -501,12 +554,14 @@ module.exports = async function handler(req, res) {
       saveDb(db);
 
       const token = createSignedToken(db.admin, SESSION_SHORT_MS);
+      const credProof = createCredProof(db.admin);
       return sendJson(
         res,
         201,
         {
           ok: true,
           token,
+          credProof,
           user: {
             username: db.admin.username,
             displayName: db.admin.displayName,
@@ -522,9 +577,14 @@ module.exports = async function handler(req, res) {
 
     // POST /api/login (somente Administrador, com proteção contra força bruta)
     if (pathname === '/api/login' && method === 'POST') {
+      const body = await readJsonBody(req);
+      if (typeof body.credProof === 'string' && body.credProof) {
+        maybeRestoreAdminFromProof(db, body.credProof);
+      }
+
       if (!db.admin || !db.admin.setupCompleted || !db.admin.passwordHash) {
         return sendJson(res, 409, {
-          error: 'Crie primeiro a senha do administrador antes de fazer login.',
+          error: 'Nenhuma senha do administrador está ativa neste servidor ainda. Clique em "Criar / configurar senha do administrador" abaixo para definir seu acesso.',
           setupRequired: true,
         });
       }
@@ -538,7 +598,6 @@ module.exports = async function handler(req, res) {
         });
       }
 
-      const body = await readJsonBody(req);
       const username = sanitizeText(body.username, 60).toLowerCase();
       const password = typeof body.password === 'string' ? body.password : '';
       const remember = Boolean(body.remember);
@@ -559,12 +618,14 @@ module.exports = async function handler(req, res) {
       clearFailedLogins(ip);
       const ttl = remember ? SESSION_LONG_MS : SESSION_SHORT_MS;
       const token = createSignedToken(db.admin, ttl);
+      const credProof = createCredProof(db.admin);
 
       return sendJson(
         res,
         200,
         {
           token,
+          credProof,
           user: {
             username: db.admin.username,
             displayName: db.admin.displayName,
@@ -644,12 +705,14 @@ module.exports = async function handler(req, res) {
       saveDb(db);
 
       const freshToken = createSignedToken(db.admin, SESSION_SHORT_MS);
+      const credProof = createCredProof(db.admin);
       return sendJson(
         res,
         200,
         {
           ok: true,
           token: freshToken,
+          credProof,
           user: {
             username: db.admin.username,
             displayName: db.admin.displayName,
@@ -672,7 +735,11 @@ module.exports = async function handler(req, res) {
       return sendJson(
         res,
         200,
-        { ok: true, message: 'Todas as sessões foram encerradas.' },
+        {
+          ok: true,
+          credProof: createCredProof(db.admin),
+          message: 'Todas as sessões foram encerradas.',
+        },
         {
           'Set-Cookie': `cal_session=; ${cookieFlags(0)}`,
         }

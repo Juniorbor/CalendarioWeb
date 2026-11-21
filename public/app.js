@@ -238,6 +238,7 @@
   }
 
   const TOKEN_STORAGE_KEY = 'calendario_auth_token';
+  const CRED_PROOF_STORAGE_KEY = 'calendario_cred_proof';
   const CACHE_STORAGE_KEY = 'calendario_months_cache';
 
   function getStoredToken() {
@@ -252,6 +253,21 @@
     try {
       if (token) localStorage.setItem(TOKEN_STORAGE_KEY, token);
       else localStorage.removeItem(TOKEN_STORAGE_KEY);
+    } catch {}
+  }
+
+  function getStoredCredProof() {
+    try {
+      return localStorage.getItem(CRED_PROOF_STORAGE_KEY) || '';
+    } catch {
+      return '';
+    }
+  }
+
+  function setStoredCredProof(proof) {
+    try {
+      if (proof) localStorage.setItem(CRED_PROOF_STORAGE_KEY, proof);
+      else localStorage.removeItem(CRED_PROOF_STORAGE_KEY);
     } catch {}
   }
 
@@ -297,9 +313,11 @@
 
   async function apiFetch(url, options = {}) {
     const token = getStoredToken();
+    const credProof = getStoredCredProof();
     const headers = {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(credProof ? { 'X-Admin-Cred-Proof': credProof } : {}),
       ...(options.headers || {}),
     };
     const opts = {
@@ -394,6 +412,10 @@
     $('setupView').classList.add('hidden');
     $('loginView').classList.remove('hidden');
     $('loginError').classList.add('hidden');
+    const setupBtn = $('goToSetupBtn');
+    if (setupBtn) {
+      setupBtn.classList.toggle('hidden', !state.setupRequired);
+    }
     setTimeout(() => $('loginUsername').focus(), 50);
   }
 
@@ -412,29 +434,30 @@
   }
 
   async function initSession() {
+    state.setupRequired = false;
     try {
       const status = await apiFetch('/api/auth/status');
-      if (status.setupRequired) {
-        setStoredToken('');
-        showSetup();
-        return;
-      }
+      state.setupRequired = Boolean(status.setupRequired);
     } catch {}
 
-    try {
-      const data = await apiFetch('/api/me');
-      state.user = data.user;
-      state.passwordUpdatedAt = data.passwordUpdatedAt || null;
-      if (data.serverToday) {
-        state.today = data.serverToday;
-        state.viewYear = data.serverToday.year;
-        state.viewMonth = data.serverToday.month;
-      }
-      await syncWithServer();
-      showApp();
-    } catch {
-      showLogin();
+    // Se já houver sessão ativa, entra direto; caso contrário abre SEMPRE na tela de Login
+    if (!state.setupRequired) {
+      try {
+        const data = await apiFetch('/api/me');
+        state.user = data.user;
+        state.passwordUpdatedAt = data.passwordUpdatedAt || null;
+        if (data.serverToday) {
+          state.today = data.serverToday;
+          state.viewYear = data.serverToday.year;
+          state.viewMonth = data.serverToday.month;
+        }
+        await syncWithServer();
+        showApp();
+        return;
+      } catch {}
     }
+
+    showLogin();
   }
 
   const BIBLICAL_VERSES = [
@@ -1150,7 +1173,9 @@
           body: JSON.stringify({ username, displayName, password }),
         });
         if (res.token) setStoredToken(res.token);
+        if (res.credProof) setStoredCredProof(res.credProof);
         if (res.envHashHint) showEnvHashHint(res.envHashHint);
+        state.setupRequired = false;
         $('setupPassword').value = '';
         $('setupPasswordConfirm').value = '';
         await initSession();
@@ -1161,6 +1186,15 @@
       } finally {
         $('setupSubmitBtn').disabled = false;
       }
+    });
+
+    // Alternar entre Login e Configuração Inicial
+    $('goToSetupBtn').addEventListener('click', () => {
+      showSetup();
+    });
+
+    $('backToLoginBtn').addEventListener('click', () => {
+      showLogin();
     });
 
     // Login exclusivo do Administrador
@@ -1176,9 +1210,16 @@
       try {
         const res = await apiFetch('/api/login', {
           method: 'POST',
-          body: JSON.stringify({ username, password, remember }),
+          body: JSON.stringify({
+            username,
+            password,
+            remember,
+            credProof: getStoredCredProof(),
+          }),
         });
         if (res.token) setStoredToken(res.token);
+        if (res.credProof) setStoredCredProof(res.credProof);
+        state.setupRequired = false;
         $('loginPassword').value = '';
         await initSession();
         showToast('Acesso administrativo autorizado.', 'success');
@@ -1351,6 +1392,7 @@
           body: JSON.stringify({ username, displayName, currentPassword, newPassword }),
         });
         if (res.token) setStoredToken(res.token);
+        if (res.credProof) setStoredCredProof(res.credProof);
         if (res.user) {
           state.user = res.user;
           $('userBadge').textContent = `${state.user.displayName} (@${state.user.username})`;
@@ -1376,7 +1418,8 @@
         return;
       }
       try {
-        await apiFetch('/api/auth/revoke-all', { method: 'POST' });
+        const res = await apiFetch('/api/auth/revoke-all', { method: 'POST' });
+        if (res.credProof) setStoredCredProof(res.credProof);
         setStoredToken('');
         state.user = null;
         closeModal('securityModal');
