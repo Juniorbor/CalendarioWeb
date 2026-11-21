@@ -543,6 +543,36 @@
       }
       state.flashCellKey = null;
     }
+
+    requestAnimationFrame(() => fitAllCellTexts());
+  }
+
+  function fitCellText(bodyEl) {
+    if (!bodyEl || !bodyEl.childElementCount) return;
+    bodyEl.style.setProperty('--fit-scale', '1');
+    if (bodyEl.scrollHeight <= bodyEl.clientHeight + 1 && bodyEl.scrollWidth <= bodyEl.clientWidth + 1) {
+      return;
+    }
+    let low = 0.42;
+    let high = 1.0;
+    let best = low;
+    for (let i = 0; i < 9; i++) {
+      const mid = (low + high) / 2;
+      bodyEl.style.setProperty('--fit-scale', mid.toFixed(3));
+      if (bodyEl.scrollHeight <= bodyEl.clientHeight + 1 && bodyEl.scrollWidth <= bodyEl.clientWidth + 1) {
+        best = mid;
+        low = mid;
+      } else {
+        high = mid;
+      }
+    }
+    bodyEl.style.setProperty('--fit-scale', best.toFixed(3));
+  }
+
+  function fitAllCellTexts() {
+    const grid = $('calGrid');
+    if (!grid) return;
+    grid.querySelectorAll('.cell-body').forEach((bodyEl) => fitCellText(bodyEl));
   }
 
   function buildCellElement({ cellKey, dow, dayNum, isPad, holidayName, cellData }) {
@@ -1317,6 +1347,17 @@
         document.querySelectorAll('.modal-backdrop').forEach((m) => m.classList.add('hidden'));
       }
     });
+
+    let resizeTimer = null;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => fitAllCellTexts(), 100);
+    });
+    window.addEventListener('beforeprint', () => fitAllCellTexts());
+    window.addEventListener('afterprint', () => fitAllCellTexts());
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(() => fitAllCellTexts());
+    }
   }
 
   bindEvents();
