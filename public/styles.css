@@ -1003,9 +1003,9 @@ body {
   align-self: flex-start;
   background: #e2e8f0;
   color: #1e293b;
-  font-size: calc(0.74rem * var(--fit-scale));
+  font-size: calc(0.74rem * var(--fit-scale, 1));
   font-weight: 500;
-  padding: calc(2px * var(--fit-scale)) calc(8px * var(--fit-scale));
+  padding: calc(2px * var(--fit-scale, 1)) calc(8px * var(--fit-scale, 1));
   border-radius: 4px;
   letter-spacing: 0.02em;
   flex-shrink: 0;
@@ -1023,13 +1023,13 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: calc(8px * var(--fit-scale));
+  gap: calc(8px * var(--fit-scale, 1));
   width: 100%;
   flex-shrink: 0;
 }
 
 .cell-title {
-  font-size: calc(1rem * var(--fit-scale));
+  font-size: calc(1rem * var(--fit-scale, 1));
   font-weight: 500;
   line-height: 1.28;
   color: var(--text-main);
@@ -1040,8 +1040,8 @@ body {
 }
 
 .theme-thumb {
-  width: calc(26px * var(--fit-scale));
-  height: calc(26px * var(--fit-scale));
+  width: calc(26px * var(--fit-scale, 1));
+  height: calc(26px * var(--fit-scale, 1));
   min-width: 14px;
   min-height: 14px;
   border-radius: 6px;
@@ -1053,15 +1053,15 @@ body {
 }
 
 .theme-thumb-sm {
-  width: calc(22px * var(--fit-scale));
-  height: calc(22px * var(--fit-scale));
+  width: calc(22px * var(--fit-scale, 1));
+  height: calc(22px * var(--fit-scale, 1));
   min-width: 14px;
   min-height: 14px;
   border-radius: 5px;
 }
 
 .cell-notes {
-  font-size: calc(0.92rem * var(--fit-scale));
+  font-size: calc(0.92rem * var(--fit-scale, 1));
   font-weight: 400;
   line-height: 1.38;
   color: var(--text-secondary);
@@ -1075,15 +1075,15 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: calc(8px * var(--fit-scale));
+  gap: calc(8px * var(--fit-scale, 1));
   width: 100%;
-  font-size: calc(0.84rem * var(--fit-scale));
+  font-size: calc(0.84rem * var(--fit-scale, 1));
   font-weight: 400;
   color: #991b1b;
   background: #fef2f2;
   border: 1px solid #fecaca;
   border-radius: 6px;
-  padding: calc(4px * var(--fit-scale)) calc(7px * var(--fit-scale)) calc(4px * var(--fit-scale)) calc(9px * var(--fit-scale));
+  padding: calc(4px * var(--fit-scale, 1)) calc(7px * var(--fit-scale, 1)) calc(4px * var(--fit-scale, 1)) calc(9px * var(--fit-scale, 1));
   flex-shrink: 0;
 }
 
