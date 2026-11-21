@@ -208,6 +208,14 @@
       </div>
 
       <div class="topbar-right">
+        <button type="button" id="tomorrowBtn" class="btn btn-outline btn-reminder" title="Ver lembrete de compromisso de amanhã">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+            <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+          </svg>
+          <span>Amanhã</span>
+          <span id="tomorrowDot" class="reminder-dot hidden" aria-hidden="true"></span>
+        </button>
         <button type="button" id="openSearchBtn" class="btn btn-outline" title="Buscar em todos os meses">Buscar</button>
         <button type="button" id="printBtn" class="btn btn-outline" title="Imprimir tabela">Imprimir</button>
         <button type="button" id="openSecurityBtn" class="btn btn-outline" title="Alterar senha, sessões e backup">Segurança</button>
@@ -551,6 +559,40 @@
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FOLHA DE BLOCO DE NOTAS: ALERTA DE COMPROMISSO PARA AMANHÃ -->
+  <div id="tomorrowAlertModal" class="modal-backdrop notepad-backdrop hidden no-print" role="alertdialog" aria-modal="true" aria-labelledby="notepadAlertTitle">
+    <div class="notepad-sheet">
+      <!-- Topo perfurado de bloco de notas -->
+      <div class="notepad-spiral" aria-hidden="true">
+        <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+      </div>
+
+      <div class="notepad-header">
+        <div class="notepad-alert-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+            <line x1="12" y1="9" x2="12" y2="13"></line>
+            <line x1="12" y1="17" x2="12.01" y2="17"></line>
+          </svg>
+          <span id="notepadAlertTitle">Lembrete para Amanhã</span>
+        </div>
+        <button type="button" class="notepad-close" data-close="tomorrowAlertModal" aria-label="Fechar lembrete">✕</button>
+      </div>
+
+      <div class="notepad-date-bar" id="notepadDateLabel"></div>
+
+      <div class="notepad-paper">
+        <div class="notepad-margin-line" aria-hidden="true"></div>
+        <div id="notepadContent" class="notepad-content"></div>
+      </div>
+
+      <div class="notepad-footer">
+        <button type="button" id="notepadGoDayBtn" class="btn btn-outline btn-sm">Ir para o dia</button>
+        <button type="button" id="notepadOkBtn" class="btn btn-alert-ack btn-sm" data-close="tomorrowAlertModal">Entendi</button>
       </div>
     </div>
   </div>

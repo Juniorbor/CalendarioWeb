@@ -430,7 +430,152 @@
     $('verseEditBadge').classList.remove('hidden');
     $('calVerseBox').classList.remove('readonly');
 
-    loadMonth(state.viewYear, state.viewMonth);
+    loadMonth(state.viewYear, state.viewMonth).then(() => {
+      checkTomorrowReminder({ autoPopup: true });
+    });
+  }
+
+  // =========================
+  // FOLHA DE BLOCO DE NOTAS: ALERTA PARA AMANHÃ
+  // =========================
+  function getTomorrowInfo() {
+    const dt = new Date(state.today.year, state.today.month - 1, state.today.day + 1);
+    const year = dt.getFullYear();
+    const month = dt.getMonth() + 1;
+    const day = dt.getDate();
+    const dow = dt.getDay();
+    const holidays = getBrazilianHolidays(year);
+    const holidayName = holidays[`${month}-${day}`] || null;
+    return {
+      year,
+      month,
+      day,
+      dow,
+      cellKey: `day-${day}`,
+      holidayName,
+      dateLabel: `${WEEKDAYS_CAP[dow]}, ${day} de ${MONTHS_CAP[month - 1]} de ${year}`,
+    };
+  }
+
+  async function checkTomorrowReminder({ autoPopup = false } = {}) {
+    const info = getTomorrowInfo();
+    let cellData = null;
+
+    if (state.viewYear === info.year && state.viewMonth === info.month) {
+      cellData = state.monthData.cells[info.cellKey] || null;
+    } else {
+      try {
+        const res = await apiFetch(`/api/calendar/${info.year}/${info.month}`);
+        cellData = (res.cells && res.cells[info.cellKey]) || null;
+      } catch {
+        cellData = null;
+      }
+    }
+
+    const hasCustomContent = Boolean(
+      cellData && (cellData.title || cellData.notes || cellData.tag)
+    );
+    const hasAppointment = Boolean(hasCustomContent || info.holidayName);
+
+    state.tomorrowReminder = { info, cellData, hasAppointment };
+
+    const btn = $('tomorrowBtn');
+    const dot = $('tomorrowDot');
+    if (btn) btn.classList.toggle('has-alert', hasAppointment);
+    if (dot) dot.classList.toggle('hidden', !hasAppointment);
+
+    if (autoPopup && hasAppointment && !state.tomorrowAlertShown) {
+      state.tomorrowAlertShown = true;
+      showTomorrowNotepad();
+    }
+  }
+
+  function showTomorrowNotepad() {
+    const reminder = state.tomorrowReminder;
+    if (!reminder) return;
+    const { info, cellData, hasAppointment } = reminder;
+
+    $('notepadDateLabel').textContent = info.dateLabel;
+    const content = $('notepadContent');
+    content.innerHTML = '';
+
+    if (!hasAppointment) {
+      const empty = document.createElement('div');
+      empty.className = 'notepad-empty';
+      empty.textContent = 'Nenhum compromisso agendado para amanhã. Clique em "Ir para o dia" se desejar adicionar um lembrete.';
+      content.appendChild(empty);
+      openModal('tomorrowAlertModal');
+      return;
+    }
+
+    const hasTitle = Boolean(cellData && cellData.title);
+    const themeImg = resolveThemeImage(cellData, hasTitle ? '' : info.holidayName);
+
+    // Badges (etiqueta + cor litúrgica)
+    if (cellData && (cellData.tag || (cellData.liturgicalColor && LIT_LABELS[cellData.liturgicalColor]))) {
+      const badges = document.createElement('div');
+      badges.className = 'notepad-badges';
+      if (cellData.tag) {
+        const tagEl = document.createElement('span');
+        tagEl.className = `cell-tag ${normalizeTagClass(cellData.tag)}`;
+        tagEl.textContent = cellData.tag;
+        badges.appendChild(tagEl);
+      }
+      if (cellData.liturgicalColor && LIT_LABELS[cellData.liturgicalColor]) {
+        const litEl = document.createElement('span');
+        litEl.className = `lit-badge lit-${cellData.liturgicalColor}`;
+        litEl.textContent = LIT_LABELS[cellData.liturgicalColor];
+        badges.appendChild(litEl);
+      }
+      content.appendChild(badges);
+    }
+
+    if (hasTitle) {
+      const titleRow = document.createElement('div');
+      titleRow.className = 'notepad-title-row';
+
+      const titleEl = document.createElement('div');
+      titleEl.className = 'notepad-event-title';
+      titleEl.textContent = cellData.title;
+      titleRow.appendChild(titleEl);
+
+      if (themeImg) {
+        const imgEl = document.createElement('img');
+        imgEl.className = 'theme-thumb';
+        imgEl.src = themeImg.src;
+        imgEl.alt = themeImg.alt;
+        titleRow.appendChild(imgEl);
+      }
+
+      content.appendChild(titleRow);
+    }
+
+    if (cellData && cellData.notes) {
+      const notesEl = document.createElement('p');
+      notesEl.className = 'notepad-event-notes';
+      notesEl.textContent = cellData.notes;
+      content.appendChild(notesEl);
+    }
+
+    if (info.holidayName && !hasTitle) {
+      const holEl = document.createElement('div');
+      holEl.className = 'notepad-holiday-line';
+
+      const holText = document.createElement('span');
+      holText.textContent = `Feriado: ${info.holidayName}`;
+      holEl.appendChild(holText);
+
+      if (themeImg) {
+        const imgEl = document.createElement('img');
+        imgEl.className = 'theme-thumb theme-thumb-sm';
+        imgEl.src = themeImg.src;
+        imgEl.alt = themeImg.alt;
+        holEl.appendChild(imgEl);
+      }
+      content.appendChild(holEl);
+    }
+
+    openModal('tomorrowAlertModal');
   }
 
   async function initSession() {
@@ -994,6 +1139,11 @@
       renderCalendar();
       closeModal('cellModal');
       showToast(clearAll ? 'Quadrado limpo com sucesso!' : 'Alterações salvas!', 'success');
+
+      const tInfo = getTomorrowInfo();
+      if (state.viewYear === tInfo.year && state.viewMonth === tInfo.month && key === tInfo.cellKey) {
+        checkTomorrowReminder({ autoPopup: false });
+      }
     } catch (err) {
       showToast(err.message, 'error');
     }
@@ -1236,7 +1386,22 @@
       await apiFetch('/api/logout', { method: 'POST' }).catch(() => {});
       setStoredToken('');
       state.user = null;
+      state.tomorrowAlertShown = false;
+      closeModal('tomorrowAlertModal');
       showLogin();
+    });
+
+    // Lembrete de Amanhã (Folha de bloco de notas)
+    $('tomorrowBtn').addEventListener('click', async () => {
+      await checkTomorrowReminder({ autoPopup: false });
+      showTomorrowNotepad();
+    });
+
+    $('notepadGoDayBtn').addEventListener('click', async () => {
+      const info = state.tomorrowReminder?.info || getTomorrowInfo();
+      closeModal('tomorrowAlertModal');
+      state.flashCellKey = info.cellKey;
+      await loadMonth(info.year, info.month);
     });
 
     // Navegação de Mês e Ano
