@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Calendário Mensal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <!-- TELA DE LOGIN -->
+  <div id="loginView" class="login-screen hidden">
+    <div class="login-card">
+      <div class="login-accent-bar"></div>
+      <div class="login-header">
+        <div class="login-logo" aria-hidden="true">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+            <line x1="16" y1="2" x2="16" y2="6"></line>
+            <line x1="8" y1="2" x2="8" y2="6"></line>
+            <line x1="3" y1="10" x2="21" y2="10"></line>
+          </svg>
+        </div>
+        <h1>Calendário Mensal</h1>
+        <p>Informe seu usuário e senha para acessar e editar a programação.</p>
+      </div>
+
+      <form id="loginForm" class="login-form" autocomplete="on">
+        <div class="field">
+          <label for="loginUsername">Usuário</label>
+          <input id="loginUsername" name="username" type="text" placeholder="Digite seu usuário" required autocomplete="username" />
+        </div>
+        <div class="field">
+          <label for="loginPassword">Senha</label>
+          <div class="password-wrap">
+            <input id="loginPassword" name="password" type="password" placeholder="Digite sua senha" required autocomplete="current-password" />
+            <button type="button" id="togglePasswordBtn" class="icon-inline-btn" title="Mostrar ou ocultar senha" aria-label="Mostrar ou ocultar senha">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                <circle cx="12" cy="12" r="3"></circle>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div id="loginError" class="alert-error hidden"></div>
+
+        <button type="submit" id="loginSubmitBtn" class="btn btn-primary btn-block btn-lg">
+          Entrar
+        </button>
+      </form>
+
+      <div class="login-hints">
+        <div class="hints-title">Acessos iniciais (clique para preencher)</div>
+        <div class="hint-chips">
+          <button type="button" class="hint-chip" data-u="admin" data-p="admin123">
+            <span>Administrador</span>
+            <code>admin / admin123</code>
+          </button>
+          <button type="button" class="hint-chip" data-u="editor" data-p="editor123">
+            <span>Editor</span>
+            <code>editor / editor123</code>
+          </button>
+          <button type="button" class="hint-chip" data-u="visitante" data-p="visitante123">
+            <span>Visualização</span>
+            <code>visitante / visitante123</code>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- APLICAÇÃO PRINCIPAL -->
+  <div id="appView" class="app-shell hidden">
+    <!-- Barra Superior Profissional -->
+    <header class="topbar no-print">
+      <div class="topbar-left">
+        <div class="brand">
+          <span class="brand-icon" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+              <line x1="16" y1="2" x2="16" y2="6"></line>
+              <line x1="8" y1="2" x2="8" y2="6"></line>
+              <line x1="3" y1="10" x2="21" y2="10"></line>
+            </svg>
+          </span>
+          <div>
+            <div class="brand-title">Calendário Mensal</div>
+            <div id="todayBanner" class="brand-sub">Carregando data atual...</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="topbar-center">
+        <div class="nav-controls">
+          <button type="button" id="prevMonthBtn" class="btn btn-outline btn-icon" title="Mês anterior" aria-label="Mês anterior">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+          </button>
+          <select id="monthSelect" class="select-control" aria-label="Selecionar mês">
+            <option value="1">JANEIRO</option>
+            <option value="2">FEVEREIRO</option>
+            <option value="3">MARÇO</option>
+            <option value="4">ABRIL</option>
+            <option value="5">MAIO</option>
+            <option value="6">JUNHO</option>
+            <option value="7">JULHO</option>
+            <option value="8">AGOSTO</option>
+            <option value="9">SETEMBRO</option>
+            <option value="10">OUTUBRO</option>
+            <option value="11">NOVEMBRO</option>
+            <option value="12">DEZEMBRO</option>
+          </select>
+          <input id="yearInput" type="number" min="1900" max="2200" class="year-control" aria-label="Selecionar ano" />
+          <button type="button" id="nextMonthBtn" class="btn btn-outline btn-icon" title="Próximo mês" aria-label="Próximo mês">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          </button>
+          <button type="button" id="todayBtn" class="btn btn-primary" title="Ir para o mês e ano atuais">Hoje</button>
+          <button type="button" id="sample2027Btn" class="btn btn-outline" title="Ver modelo de Janeiro/2027">Jan/2027</button>
+        </div>
+      </div>
+
+      <div class="topbar-right">
+        <button type="button" id="openSearchBtn" class="btn btn-outline" title="Buscar em todos os meses">Buscar</button>
+        <button type="button" id="printBtn" class="btn btn-outline" title="Imprimir tabela">Imprimir</button>
+        <button type="button" id="openUsersBtn" class="btn btn-outline" title="Conta, senha e usuários">Conta</button>
+        <div class="user-pill" id="userBadge"></div>
+        <button type="button" id="logoutBtn" class="btn btn-danger-outline" title="Sair do sistema">Sair</button>
+      </div>
+    </header>
+
+    <!-- Legenda Discreta e Informativa -->
+    <div class="legend-bar no-print">
+      <div class="legend-items">
+        <span class="legend-label">Cores litúrgicas:</span>
+        <span class="lit-pill lit-branco">Branco</span>
+        <span class="lit-pill lit-verde">Verde</span>
+        <span class="lit-pill lit-vermelho">Vermelho</span>
+        <span class="lit-pill lit-roxo">Roxo</span>
+        <span class="lit-pill lit-rosa">Rosa</span>
+        <span class="lit-pill lit-dourado">Dourado</span>
+        <span class="lit-pill lit-preto">Preto</span>
+      </div>
+      <div class="legend-tip" id="editModeTip">
+        Clique em qualquer quadrado ou no lema superior para editar
+      </div>
+    </div>
+
+    <!-- Área Ampliada da Tabela do Calendário -->
+    <main class="calendar-stage">
+      <section class="calendar-frame" aria-label="Tabela do Calendário Mensal">
+        <!-- Cabeçalho Triplo (Mês | Versículo/Lema | Ano) -->
+        <div class="cal-top-header">
+          <div class="cal-month-box" id="calMonthLabel">JANEIRO</div>
+          <div class="cal-verse-box" id="calVerseBox" role="button" tabindex="0" title="Clique para editar o versículo/lema do mês">
+            <span id="calVerseText" class="cal-verse-text"></span>
+            <span class="verse-edit-badge no-print" id="verseEditBadge">Editar lema</span>
+          </div>
+          <div class="cal-year-box" id="calYearLabel">2027</div>
+        </div>
+
+        <!-- Cabeçalho dos 7 Dias da Semana (Todos em Azul) -->
+        <div class="cal-weekdays" role="row">
+          <div class="cal-weekday wd-sun">DOMINGO</div>
+          <div class="cal-weekday wd-mon">SEGUNDA</div>
+          <div class="cal-weekday wd-tue">TERÇA</div>
+          <div class="cal-weekday wd-wed">QUARTA</div>
+          <div class="cal-weekday wd-thu">QUINTA</div>
+          <div class="cal-weekday wd-fri">SEXTA</div>
+          <div class="cal-weekday wd-sat">SÁBADO</div>
+        </div>
+
+        <!-- Grade Ampla dos Quadrados -->
+        <div id="calGrid" class="cal-grid" role="grid"></div>
+      </section>
+    </main>
+  </div>
+
+  <!-- MODAL: EDITAR QUADRADO -->
+  <div id="cellModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="cellModalTitle">
+    <div class="modal-card modal-lg">
+      <div class="modal-header">
+        <div>
+          <h2 id="cellModalTitle">Editar Quadrado</h2>
+          <p id="cellModalSub" class="modal-sub"></p>
+        </div>
+        <button type="button" class="modal-close" data-close="cellModal" aria-label="Fechar">✕</button>
+      </div>
+
+      <form id="cellForm" class="modal-body">
+        <div class="form-row-2">
+          <div class="field">
+            <label for="cellTitle">Título / Evento Principal</label>
+            <input id="cellTitle" type="text" maxlength="140" placeholder="Ex.: ANO NOVO, Culto, Reunião..." />
+          </div>
+          <div class="field">
+            <label for="cellTag">Etiqueta (Categoria)</label>
+            <input id="cellTag" type="text" maxlength="40" placeholder="Ex.: Culto, Feriado, Evento..." />
+            <div class="quick-tags">
+              <button type="button" class="qtag" data-tag="Culto">Culto</button>
+              <button type="button" class="qtag" data-tag="Feriado">Feriado</button>
+              <button type="button" class="qtag" data-tag="Reunião">Reunião</button>
+              <button type="button" class="qtag" data-tag="Evento">Evento</button>
+              <button type="button" class="qtag" data-tag="Formação">Formação</button>
+              <button type="button" class="qtag" data-tag="Citação">Citação</button>
+              <button type="button" class="qtag" data-tag="Aniversário">Aniversário</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="cellNotes">Informações / Detalhes / Horários / Reflexão</label>
+          <textarea id="cellNotes" rows="5" maxlength="1500" placeholder="Adicione horários, nomes, versículos ou observações para este quadrado..."></textarea>
+        </div>
+
+        <div class="field">
+          <label>Cor Litúrgica (canto superior direito)</label>
+          <div id="litColorPicker" class="lit-picker">
+            <button type="button" class="lit-opt" data-lit="">Nenhuma</button>
+            <button type="button" class="lit-opt lit-branco" data-lit="branco">Branco</button>
+            <button type="button" class="lit-opt lit-verde" data-lit="verde">Verde</button>
+            <button type="button" class="lit-opt lit-vermelho" data-lit="vermelho">Vermelho</button>
+            <button type="button" class="lit-opt lit-roxo" data-lit="roxo">Roxo</button>
+            <button type="button" class="lit-opt lit-rosa" data-lit="rosa">Rosa</button>
+            <button type="button" class="lit-opt lit-dourado" data-lit="dourado">Dourado</button>
+            <button type="button" class="lit-opt lit-preto" data-lit="preto">Preto</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Cor de Destaque do Quadrado</label>
+          <div id="cellColorPicker" class="swatch-picker">
+            <button type="button" class="swatch-opt sw-default" data-color="" title="Padrão do dia">Padrão</button>
+            <button type="button" class="swatch-opt sw-azul" data-color="azul">Azul</button>
+            <button type="button" class="swatch-opt sw-verde" data-color="verde">Verde</button>
+            <button type="button" class="swatch-opt sw-amarelo" data-color="amarelo">Âmbar</button>
+            <button type="button" class="swatch-opt sw-laranja" data-color="laranja">Terracota</button>
+            <button type="button" class="swatch-opt sw-vermelho" data-color="vermelho">Bordô</button>
+            <button type="button" class="swatch-opt sw-roxo" data-color="roxo">Violeta</button>
+            <button type="button" class="swatch-opt sw-rosa" data-color="rosa">Rosé</button>
+            <button type="button" class="swatch-opt sw-teal" data-color="teal">Petróleo</button>
+            <button type="button" class="swatch-opt sw-indigo" data-color="indigo">Marinho</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Miniatura do Tema (exibida no canto direito do nome)</label>
+          <div id="themeImagePicker" class="theme-picker">
+            <button type="button" class="theme-opt" data-theme="">Automático</button>
+            <button type="button" class="theme-opt" data-theme="none">Sem imagem</button>
+            <button type="button" class="theme-opt" data-theme="finados"><img src="/images/themes/finados.svg" alt="" />Finados</button>
+            <button type="button" class="theme-opt" data-theme="culto"><img src="/images/themes/culto.svg" alt="" />Culto</button>
+            <button type="button" class="theme-opt" data-theme="biblia"><img src="/images/themes/biblia.svg" alt="" />Bíblia</button>
+            <button type="button" class="theme-opt" data-theme="cruz"><img src="/images/themes/cruz.svg" alt="" />Páscoa / Cruz</button>
+            <button type="button" class="theme-opt" data-theme="anonovo"><img src="/images/themes/anonovo.svg" alt="" />Ano Novo</button>
+            <button type="button" class="theme-opt" data-theme="natal"><img src="/images/themes/natal.svg" alt="" />Natal</button>
+            <button type="button" class="theme-opt" data-theme="consciencia"><img src="/images/themes/consciencia.svg" alt="" />Consciência Negra</button>
+            <button type="button" class="theme-opt" data-theme="brasil"><img src="/images/themes/brasil.svg" alt="" />Brasil</button>
+            <button type="button" class="theme-opt" data-theme="formacao"><img src="/images/themes/formacao.svg" alt="" />Formação</button>
+            <button type="button" class="theme-opt" data-theme="reuniao"><img src="/images/themes/reuniao.svg" alt="" />Reunião</button>
+            <button type="button" class="theme-opt" data-theme="aniversario"><img src="/images/themes/aniversario.svg" alt="" />Aniversário</button>
+            <button type="button" class="theme-opt" data-theme="citacao"><img src="/images/themes/citacao.svg" alt="" />Reflexão</button>
+            <button type="button" class="theme-opt" data-theme="eucaristia"><img src="/images/themes/eucaristia.svg" alt="" />Santa Ceia</button>
+            <button type="button" class="theme-opt" data-theme="trabalho"><img src="/images/themes/trabalho.svg" alt="" />Trabalho</button>
+            <button type="button" class="theme-opt" data-theme="coracao"><img src="/images/themes/coracao.svg" alt="" />Ação Social</button>
+            <button type="button" class="theme-opt" data-theme="musica"><img src="/images/themes/musica.svg" alt="" />Música / Coral</button>
+            <button type="button" class="theme-opt" data-theme="carnaval"><img src="/images/themes/carnaval.svg" alt="" />Carnaval</button>
+          </div>
+          <div class="custom-img-row">
+            <label class="btn btn-outline custom-img-btn" for="cellCustomImageInput">Enviar imagem própria</label>
+            <input id="cellCustomImageInput" type="file" accept="image/*" class="hidden" />
+            <div id="customImagePreviewWrap" class="custom-img-preview hidden">
+              <img id="customImagePreview" src="" alt="Prévia da imagem" />
+              <span>Imagem personalizada</span>
+              <button type="button" id="removeCustomImageBtn" class="btn btn-danger-outline btn-xs">Remover</button>
+            </div>
+          </div>
+        </div>
+
+        <label class="checkbox-row">
+          <input type="checkbox" id="cellIsQuote" />
+          <span>Exibir como citação / reflexão centralizada</span>
+        </label>
+
+        <div id="cellMetaInfo" class="meta-info"></div>
+
+        <div class="modal-footer">
+          <button type="button" id="clearCellBtn" class="btn btn-danger-outline">Limpar Quadrado</button>
+          <div class="footer-right">
+            <button type="button" class="btn btn-outline" data-close="cellModal">Cancelar</button>
+            <button type="submit" id="saveCellBtn" class="btn btn-primary">Salvar Alterações</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: EDITAR VERSÍCULO / LEMA DO MÊS -->
+  <div id="verseModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="verseModalTitle">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div>
+          <h2 id="verseModalTitle">Versículo / Lema do Mês</h2>
+          <p id="verseModalSub" class="modal-sub"></p>
+        </div>
+        <button type="button" class="modal-close" data-close="verseModal" aria-label="Fechar">✕</button>
+      </div>
+      <form id="verseForm" class="modal-body">
+        <div class="field">
+          <label for="verseInput">Texto exibido na faixa central superior da tabela</label>
+          <textarea id="verseInput" rows="3" maxlength="300" placeholder="Ex.: Põe-se vinho novo em odres novos (Marcos 2. 22)"></textarea>
+        </div>
+        <div class="modal-footer">
+          <button type="button" id="clearVerseBtn" class="btn btn-danger-outline">Limpar</button>
+          <div class="footer-right">
+            <button type="button" class="btn btn-outline" data-close="verseModal">Cancelar</button>
+            <button type="submit" class="btn btn-primary">Salvar Lema</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: BUSCA -->
+  <div id="searchModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="searchModalTitle">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div>
+          <h2 id="searchModalTitle">Buscar no Calendário</h2>
+          <p class="modal-sub">Pesquise eventos, versículos, cores litúrgicas ou anotações em qualquer mês.</p>
+        </div>
+        <button type="button" class="modal-close" data-close="searchModal" aria-label="Fechar">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="search-bar-row">
+          <input id="searchInput" type="search" placeholder="Digite uma palavra (ex.: Lutero, Culto, Verde, Ano Novo)..." />
+          <button type="button" id="doSearchBtn" class="btn btn-primary">Buscar</button>
+        </div>
+        <div id="searchResults" class="search-results">
+          <div class="empty-state">Digite um termo para pesquisar.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: CONTA, USUÁRIOS E BACKUP -->
+  <div id="usersModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="usersModalTitle">
+    <div class="modal-card modal-lg">
+      <div class="modal-header">
+        <div>
+          <h2 id="usersModalTitle">Conta, Usuários e Backup</h2>
+          <p class="modal-sub">Gerencie sua senha de acesso, usuários autorizados e cópias de segurança.</p>
+        </div>
+        <button type="button" class="modal-close" data-close="usersModal" aria-label="Fechar">✕</button>
+      </div>
+
+      <div class="modal-tabs">
+        <button type="button" class="tab-btn active" data-tab="tabPassword">Minha Senha</button>
+        <button type="button" class="tab-btn" data-tab="tabUsers" id="tabUsersBtn">Usuários</button>
+        <button type="button" class="tab-btn" data-tab="tabBackup" id="tabBackupBtn">Backup</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Aba Senha -->
+        <div id="tabPassword" class="tab-panel active">
+          <form id="changePasswordForm" class="stack-form">
+            <div class="field">
+              <label for="curPass">Senha Atual</label>
+              <input id="curPass" type="password" required />
+            </div>
+            <div class="field">
+              <label for="newPass">Nova Senha (mínimo 4 caracteres)</label>
+              <input id="newPass" type="password" minlength="4" required />
+            </div>
+            <div class="field">
+              <label for="confirmPass">Confirmar Nova Senha</label>
+              <input id="confirmPass" type="password" minlength="4" required />
+            </div>
+            <div>
+              <button type="submit" class="btn btn-primary">Atualizar Minha Senha</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Aba Usuários (Admin) -->
+        <div id="tabUsers" class="tab-panel">
+          <form id="createUserForm" class="create-user-box">
+            <h3>Adicionar Novo Usuário</h3>
+            <div class="form-row-2">
+              <div class="field">
+                <label for="nuUsername">Login (usuário)</label>
+                <input id="nuUsername" type="text" placeholder="ex.: secretaria" required />
+              </div>
+              <div class="field">
+                <label for="nuDisplay">Nome de Exibição</label>
+                <input id="nuDisplay" type="text" placeholder="ex.: Maria Silva" required />
+              </div>
+            </div>
+            <div class="form-row-2">
+              <div class="field">
+                <label for="nuRole">Perfil de Acesso</label>
+                <select id="nuRole">
+                  <option value="editor">Editor (acessa e edita quadros)</option>
+                  <option value="admin">Administrador (edita e gerencia usuários)</option>
+                  <option value="viewer">Visualizador (somente leitura)</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="nuPassword">Senha inicial</label>
+                <input id="nuPassword" type="password" minlength="4" placeholder="Mínimo 4 caracteres" required />
+              </div>
+            </div>
+            <button type="submit" class="btn btn-primary">Cadastrar Usuário</button>
+          </form>
+
+          <div class="users-list-wrap">
+            <h3>Usuários Cadastrados</h3>
+            <div id="usersList" class="users-list"></div>
+          </div>
+        </div>
+
+        <!-- Aba Backup -->
+        <div id="tabBackup" class="tab-panel">
+          <div class="backup-cards">
+            <div class="backup-box">
+              <h3>Exportar Dados do Calendário</h3>
+              <p>Baixe um arquivo JSON com todos os meses, versículos, cores litúrgicas e eventos cadastrados.</p>
+              <button type="button" id="exportBackupBtn" class="btn btn-primary">Baixar Backup (.json)</button>
+            </div>
+            <div class="backup-box" id="restoreBackupBox">
+              <h3>Restaurar Backup (Administrador)</h3>
+              <p>Carregue um arquivo de backup JSON salvo anteriormente para restaurar os meses.</p>
+              <input type="file" id="restoreFileInput" accept="application/json,.json" class="file-input" />
+              <button type="button" id="restoreBackupBtn" class="btn btn-outline">Restaurar Arquivo</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST -->
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

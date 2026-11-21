@@ -1,0 +1,14 @@
+{
+  "name": "calendario-liturgico-web",
+  "version": "1.0.0",
+  "description": "Sistema Web de Calendário Mensal Editável com Autenticação",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "build": "node build.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
