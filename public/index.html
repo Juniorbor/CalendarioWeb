@@ -160,80 +160,129 @@
 
   <!-- APLICAÇÃO PRINCIPAL -->
   <div id="appView" class="app-shell hidden">
-    <!-- Barra Superior Profissional -->
+    <!-- Barra Superior Limpa e Organizada -->
     <header class="topbar no-print">
-      <div class="topbar-left">
-        <div class="brand">
-          <span class="brand-icon" aria-hidden="true">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
-              <line x1="16" y1="2" x2="16" y2="6"></line>
-              <line x1="8" y1="2" x2="8" y2="6"></line>
-              <line x1="3" y1="10" x2="21" y2="10"></line>
+      <div class="topbar-row-main">
+        <div class="topbar-left">
+          <div class="brand">
+            <span class="brand-icon" aria-hidden="true">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                <line x1="16" y1="2" x2="16" y2="6"></line>
+                <line x1="8" y1="2" x2="8" y2="6"></line>
+                <line x1="3" y1="10" x2="21" y2="10"></line>
+              </svg>
+            </span>
+            <div class="brand-text">
+              <div class="brand-title">Calendário Mensal</div>
+              <div id="todayBanner" class="brand-sub">Carregando data atual...</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="topbar-center desktop-nav-slot">
+          <div class="nav-controls">
+            <button type="button" id="prevMonthBtn" class="btn btn-outline btn-icon" title="Mês anterior" aria-label="Mês anterior">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+            </button>
+            <select id="monthSelect" class="select-control" aria-label="Selecionar mês">
+              <option value="1">JANEIRO</option>
+              <option value="2">FEVEREIRO</option>
+              <option value="3">MARÇO</option>
+              <option value="4">ABRIL</option>
+              <option value="5">MAIO</option>
+              <option value="6">JUNHO</option>
+              <option value="7">JULHO</option>
+              <option value="8">AGOSTO</option>
+              <option value="9">SETEMBRO</option>
+              <option value="10">OUTUBRO</option>
+              <option value="11">NOVEMBRO</option>
+              <option value="12">DEZEMBRO</option>
+            </select>
+            <input id="yearInput" type="number" min="1900" max="2200" class="year-control" aria-label="Selecionar ano" />
+            <button type="button" id="nextMonthBtn" class="btn btn-outline btn-icon" title="Próximo mês" aria-label="Próximo mês">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </button>
+            <button type="button" id="todayBtn" class="btn btn-primary btn-today" title="Ir para o mês e ano atuais">Hoje</button>
+          </div>
+        </div>
+
+        <div class="topbar-right">
+          <button type="button" id="tomorrowBtn" class="btn btn-outline btn-reminder" title="Ver lembrete de amanhã e próximos 7 dias">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+              <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
             </svg>
-          </span>
-          <div>
-            <div class="brand-title">Calendário Mensal</div>
-            <div id="todayBanner" class="brand-sub">Carregando data atual...</div>
+            <span class="hide-on-xs">Lembretes</span>
+            <span id="weekCountBadge" class="week-count-badge hidden">0</span>
+            <span id="tomorrowDot" class="reminder-dot hidden" aria-hidden="true"></span>
+          </button>
+
+          <button type="button" id="enterAdminBtn" class="btn btn-primary public-only hidden" title="Acessar área administrativa">Admin</button>
+
+          <!-- Menu organizado com todas as opções secundárias -->
+          <div class="menu-wrap">
+            <button type="button" id="moreMenuBtn" class="btn btn-outline btn-menu" aria-expanded="false" aria-haspopup="true" title="Mais opções e ferramentas">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="3" y1="12" x2="21" y2="12"></line>
+                <line x1="3" y1="18" x2="21" y2="18"></line>
+              </svg>
+              <span>Menu</span>
+            </button>
+
+            <div id="moreMenuPanel" class="menu-dropdown hidden" role="menu">
+              <div class="menu-user-card admin-only">
+                <div class="menu-user-label">Conectado como</div>
+                <div class="menu-user-name" id="userBadge">Administrador</div>
+              </div>
+
+              <div class="menu-group">
+                <div class="menu-group-title">Agenda e Avisos</div>
+                <button type="button" id="weekPanelBtn" class="menu-item" role="menuitem">Próximos 7 dias</button>
+                <button type="button" id="openSearchBtn" class="menu-item admin-only" role="menuitem">Buscar no calendário</button>
+              </div>
+
+              <div class="menu-group">
+                <div class="menu-group-title">Compartilhar e Imprimir</div>
+                <button type="button" id="exportPngBtn" class="menu-item" role="menuitem">Baixar imagem para WhatsApp</button>
+                <button type="button" id="shareLinkBtn" class="menu-item admin-only" role="menuitem">Copiar link da Comunidade</button>
+                <button type="button" id="printBtn" class="menu-item" role="menuitem">Imprimir calendário (mural)</button>
+              </div>
+
+              <div class="menu-group admin-only">
+                <div class="menu-group-title">Ferramentas do Mês</div>
+                <button type="button" id="autoLiturgicalBtn" class="menu-item" role="menuitem">Aplicar cores litúrgicas do mês</button>
+                <button type="button" id="sample2027Btn" class="menu-item" role="menuitem">Abrir modelo Jan/2027</button>
+              </div>
+
+              <div class="menu-group menu-legend-mobile">
+                <div class="menu-group-title">Cores Litúrgicas</div>
+                <div class="menu-lit-grid">
+                  <span class="lit-pill lit-branco">Branco</span>
+                  <span class="lit-pill lit-verde">Verde</span>
+                  <span class="lit-pill lit-vermelho">Vermelho</span>
+                  <span class="lit-pill lit-roxo">Roxo</span>
+                  <span class="lit-pill lit-rosa">Rosa</span>
+                  <span class="lit-pill lit-dourado">Dourado</span>
+                  <span class="lit-pill lit-preto">Preto</span>
+                </div>
+              </div>
+
+              <div class="menu-group admin-only">
+                <div class="menu-group-title">Conta</div>
+                <button type="button" id="openSecurityBtn" class="menu-item" role="menuitem">Segurança, senha e backup</button>
+                <button type="button" id="logoutBtn" class="menu-item menu-item-danger" role="menuitem">Sair do sistema</button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
-
-      <div class="topbar-center">
-        <div class="nav-controls">
-          <button type="button" id="prevMonthBtn" class="btn btn-outline btn-icon" title="Mês anterior" aria-label="Mês anterior">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
-          </button>
-          <select id="monthSelect" class="select-control" aria-label="Selecionar mês">
-            <option value="1">JANEIRO</option>
-            <option value="2">FEVEREIRO</option>
-            <option value="3">MARÇO</option>
-            <option value="4">ABRIL</option>
-            <option value="5">MAIO</option>
-            <option value="6">JUNHO</option>
-            <option value="7">JULHO</option>
-            <option value="8">AGOSTO</option>
-            <option value="9">SETEMBRO</option>
-            <option value="10">OUTUBRO</option>
-            <option value="11">NOVEMBRO</option>
-            <option value="12">DEZEMBRO</option>
-          </select>
-          <input id="yearInput" type="number" min="1900" max="2200" class="year-control" aria-label="Selecionar ano" />
-          <button type="button" id="nextMonthBtn" class="btn btn-outline btn-icon" title="Próximo mês" aria-label="Próximo mês">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
-          </button>
-          <button type="button" id="todayBtn" class="btn btn-primary" title="Ir para o mês e ano atuais">Hoje</button>
-          <button type="button" id="sample2027Btn" class="btn btn-outline" title="Ver modelo de Janeiro/2027">Jan/2027</button>
-        </div>
-      </div>
-
-      <div class="topbar-right">
-        <button type="button" id="tomorrowBtn" class="btn btn-outline btn-reminder" title="Ver lembrete de compromisso de amanhã">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
-            <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
-          </svg>
-          <span>Amanhã</span>
-          <span id="tomorrowDot" class="reminder-dot hidden" aria-hidden="true"></span>
-        </button>
-        <button type="button" id="weekPanelBtn" class="btn btn-outline btn-week" title="Painel rápido dos próximos 7 dias">
-          <span>Próx. 7 dias</span>
-          <span id="weekCountBadge" class="week-count-badge hidden">0</span>
-        </button>
-        <button type="button" id="exportPngBtn" class="btn btn-outline" title="Baixar imagem pronta para enviar no WhatsApp">WhatsApp</button>
-        <button type="button" id="shareLinkBtn" class="btn btn-outline admin-only" title="Copiar link público somente leitura para a comunidade">Link Comunidade</button>
-        <button type="button" id="openSearchBtn" class="btn btn-outline admin-only" title="Buscar em todos os meses">Buscar</button>
-        <button type="button" id="printBtn" class="btn btn-outline" title="Imprimir tabela com cabeçalho oficial">Imprimir</button>
-        <button type="button" id="openSecurityBtn" class="btn btn-outline admin-only" title="Alterar senha, sessões e backup">Segurança</button>
-        <div class="user-pill admin-only" id="userBadge"></div>
-        <button type="button" id="logoutBtn" class="btn btn-danger-outline admin-only" title="Sair do sistema">Sair</button>
-        <button type="button" id="enterAdminBtn" class="btn btn-primary public-only hidden" title="Acessar área administrativa">Área do Admin</button>
-      </div>
     </header>
 
-    <!-- Barra de Legenda, Ações Rápidas e Alternância Grade/Lista -->
+    <!-- Barra Secundária Compacta (Legenda no Desktop + Seletor Grade/Lista + Desfazer) -->
     <div class="legend-bar no-print">
-      <div class="legend-items">
+      <div class="legend-items desktop-legend-only">
         <span class="legend-label">Cores litúrgicas:</span>
         <span class="lit-pill lit-branco">Branco</span>
         <span class="lit-pill lit-verde">Verde</span>
@@ -242,15 +291,14 @@
         <span class="lit-pill lit-rosa">Rosa</span>
         <span class="lit-pill lit-dourado">Dourado</span>
         <span class="lit-pill lit-preto">Preto</span>
-        <button type="button" id="autoLiturgicalBtn" class="btn btn-outline btn-xs admin-only" title="Preencher automaticamente as cores litúrgicas IECLB nos domingos deste mês">Aplicar cores do mês</button>
-        <button type="button" id="undoToolbarBtn" class="btn btn-undo-bar btn-xs admin-only hidden" title="Desfazer última alteração (Ctrl+Z)">Desfazer</button>
       </div>
       <div class="legend-right">
         <div class="view-switch" role="group" aria-label="Modo de visualização">
           <button type="button" id="viewGridBtn" class="view-switch-btn active">Grade</button>
           <button type="button" id="viewListBtn" class="view-switch-btn">Lista / Agenda</button>
         </div>
-        <div class="legend-tip" id="editModeTip">
+        <button type="button" id="undoToolbarBtn" class="btn btn-undo-bar btn-xs admin-only hidden" title="Desfazer última alteração (Ctrl+Z)">Desfazer</button>
+        <div class="legend-tip desktop-tip-only" id="editModeTip">
           Clique para editar ou arraste um dia para mover
         </div>
       </div>
