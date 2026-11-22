@@ -246,6 +246,7 @@
     activeUndoHandler = typeof undoHandler === 'function' ? undoHandler : null;
     if (activeUndoHandler) {
       state.lastUndo = activeUndoHandler;
+      updateUndoButtonUi();
     }
     if (act) {
       act.classList.toggle('hidden', !activeUndoHandler);
@@ -257,6 +258,23 @@
     toastTimer = setTimeout(() => {
       el.classList.add('hidden');
     }, activeUndoHandler ? 8000 : 3400);
+  }
+
+  function updateUndoButtonUi() {
+    const btn = $('undoToolbarBtn');
+    if (btn) {
+      btn.classList.toggle('hidden', !canEdit() || !state.lastUndo);
+    }
+  }
+
+  async function runLastUndo() {
+    const fn = state.lastUndo;
+    if (!fn || !canEdit()) return;
+    state.lastUndo = null;
+    activeUndoHandler = null;
+    updateUndoButtonUi();
+    $('toast').classList.add('hidden');
+    await fn();
   }
 
   const TOKEN_STORAGE_KEY = 'calendario_auth_token';
@@ -466,6 +484,14 @@
     }
 
     $('todayBanner').textContent = `Hoje: ${state.today.day} de ${MONTHS_CAP[state.today.month - 1]} de ${state.today.year}`;
+    updateUndoButtonUi();
+
+    // No celular (<= 768px), abre automaticamente no modo Lista / Agenda para leitura mais confortável
+    if (!state.userPickedView && window.innerWidth <= 768) {
+      setViewMode('list');
+    } else {
+      setViewMode(state.viewMode);
+    }
 
     loadMonth(state.viewYear, state.viewMonth).then(() => {
       checkTomorrowReminder({ autoPopup: true });
@@ -545,6 +571,17 @@
     if (btn) btn.classList.toggle('has-alert', hasAppointment);
     if (dot) dot.classList.toggle('hidden', !hasAppointment);
 
+    // Atualiza também o contador do painel rápido dos próximos 7 dias
+    loadUpcomingWeekItems()
+      .then((weekItems) => {
+        const badge = $('weekCountBadge');
+        if (badge) {
+          badge.textContent = String(weekItems.length);
+          badge.classList.toggle('hidden', weekItems.length === 0);
+        }
+      })
+      .catch(() => {});
+
     if (autoPopup && hasAppointment && !state.tomorrowAlertShown) {
       state.tomorrowAlertShown = true;
       showTomorrowNotepad('tomorrow');
@@ -599,22 +636,57 @@
         btn.type = 'button';
         btn.className = 'notepad-week-item';
 
+        const head = document.createElement('div');
+        head.className = 'notepad-week-head';
+
         const dt = document.createElement('div');
         dt.className = 'notepad-week-date';
         dt.textContent = item.offset === 1 ? `Amanhã • ${item.info.shortLabel}` : item.info.shortLabel;
+        head.appendChild(dt);
+
+        if (item.cellData && item.cellData.liturgicalColor && LIT_LABELS[item.cellData.liturgicalColor]) {
+          const lit = document.createElement('span');
+          lit.className = `lit-badge lit-${item.cellData.liturgicalColor}`;
+          lit.textContent = LIT_LABELS[item.cellData.liturgicalColor];
+          head.appendChild(lit);
+        }
+
+        const titleRow = document.createElement('div');
+        titleRow.className = 'notepad-title-row';
 
         const title = document.createElement('div');
         title.className = 'notepad-week-title';
-        const firstSched =
-          item.cellData && Array.isArray(item.cellData.schedule) && item.cellData.schedule[0]
-            ? `${item.cellData.schedule[0].time ? `${item.cellData.schedule[0].time} — ` : ''}${item.cellData.schedule[0].text}`
-            : '';
         title.textContent =
-          item.cellData?.title || firstSched || item.info.holidayName || item.cellData?.notes || 'Compromisso';
+          item.cellData?.title || item.info.holidayName || item.cellData?.tag || 'Compromisso agendado';
+        titleRow.appendChild(title);
 
-        btn.append(dt, title);
+        const themeImg = resolveThemeImage(item.cellData, item.cellData?.title ? '' : item.info.holidayName);
+        if (themeImg) {
+          const img = document.createElement('img');
+          img.className = 'theme-thumb theme-thumb-sm';
+          img.src = themeImg.src;
+          img.alt = themeImg.alt;
+          titleRow.appendChild(img);
+        }
+
+        btn.append(head, titleRow);
+
+        if (item.cellData && Array.isArray(item.cellData.schedule) && item.cellData.schedule.length > 0) {
+          const sub = document.createElement('div');
+          sub.className = 'notepad-week-sub';
+          sub.textContent = item.cellData.schedule
+            .map((s) => `${s.time ? `${s.time} ` : ''}${s.text}`)
+            .join(' • ');
+          btn.appendChild(sub);
+        } else if (item.cellData && item.cellData.notes) {
+          const sub = document.createElement('div');
+          sub.className = 'notepad-week-sub';
+          sub.textContent = item.cellData.notes.slice(0, 90);
+          btn.appendChild(sub);
+        }
+
         btn.addEventListener('click', async () => {
-          closeModal('tomorrowAlertModal');
+          closeModal('tomorrowAlertModal', true);
           state.flashCellKey = item.info.cellKey;
           await loadMonth(item.info.year, item.info.month);
         });
@@ -1380,7 +1452,13 @@
         return false;
       }
     }
+    if (!force && id === 'verseModal' && state.verseModalDirty) {
+      if (!window.confirm('Você tem alterações não salvas no versículo/lema. Deseja sair sem salvar?')) {
+        return false;
+      }
+    }
     if (id === 'cellModal') state.cellModalDirty = false;
+    if (id === 'verseModal') state.verseModalDirty = false;
     $(id).classList.add('hidden');
     return true;
   }
@@ -2162,6 +2240,7 @@
     $('verseModalSub').textContent = `${MONTHS_CAP[state.viewMonth - 1]} de ${state.viewYear} • Rotação automática a cada 5s`;
     $('verseInput').value = state.monthData.verse || '';
     $('versePinCheckbox').checked = Boolean(state.monthData.versePinned);
+    state.verseModalDirty = false;
     openModal('verseModal');
     setTimeout(() => $('verseInput').focus(), 40);
   }
@@ -2176,7 +2255,8 @@
       state.monthData.versePinned = Boolean(res.versePinned);
       updateLocalMonthCache(state.viewYear, state.viewMonth, state.monthData, res.updatedAt);
       renderCalendar();
-      closeModal('verseModal');
+      state.verseModalDirty = false;
+      closeModal('verseModal', true);
       showToast(
         state.monthData.versePinned
           ? 'Versículo fixado neste mês!'
@@ -2402,6 +2482,11 @@
       showTomorrowNotepad('tomorrow');
     });
 
+    $('weekPanelBtn').addEventListener('click', async () => {
+      await checkTomorrowReminder({ autoPopup: false });
+      showTomorrowNotepad('week');
+    });
+
     $('notepadTabTomorrow').addEventListener('click', () => showTomorrowNotepad('tomorrow'));
     $('notepadTabWeek').addEventListener('click', () => showTomorrowNotepad('week'));
 
@@ -2409,7 +2494,6 @@
       const info = state.tomorrowReminder?.info || getTomorrowInfo();
       closeModal('tomorrowAlertModal', true);
       state.flashCellKey = info.cellKey;
-      setViewMode('grid');
       await loadMonth(info.year, info.month);
     });
 
@@ -2430,20 +2514,22 @@
       window.location.href = '/';
     });
 
-    // Cores Litúrgicas Automáticas do Mês (IECLB)
+    // Cores Litúrgicas Automáticas do Mês (IECLB) + Desfazer na barra
     $('autoLiturgicalBtn').addEventListener('click', () => applyAutoLiturgicalColors());
+    $('undoToolbarBtn').addEventListener('click', () => runLastUndo());
 
     // Alternância Grade / Lista
-    $('viewGridBtn').addEventListener('click', () => setViewMode('grid'));
-    $('viewListBtn').addEventListener('click', () => setViewMode('list'));
+    $('viewGridBtn').addEventListener('click', () => {
+      state.userPickedView = true;
+      setViewMode('grid');
+    });
+    $('viewListBtn').addEventListener('click', () => {
+      state.userPickedView = true;
+      setViewMode('list');
+    });
 
     // Botão Desfazer dentro do Toast
-    $('toastActionBtn').addEventListener('click', async () => {
-      const fn = activeUndoHandler;
-      activeUndoHandler = null;
-      $('toast').classList.add('hidden');
-      if (typeof fn === 'function') await fn();
-    });
+    $('toastActionBtn').addEventListener('click', () => runLastUndo());
 
     // Navegação de Mês e Ano
     $('prevMonthBtn').addEventListener('click', () => {
@@ -2489,6 +2575,13 @@
         e.preventDefault();
         openVerseModal();
       }
+    });
+
+    $('verseInput').addEventListener('input', () => {
+      state.verseModalDirty = true;
+    });
+    $('versePinCheckbox').addEventListener('change', () => {
+      state.verseModalDirty = true;
     });
 
     $('verseForm').addEventListener('submit', (e) => {
@@ -2750,9 +2843,7 @@
       // Ctrl+Z: Desfazer última ação
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && state.lastUndo && canEdit()) {
         e.preventDefault();
-        const fn = state.lastUndo;
-        state.lastUndo = null;
-        fn();
+        runLastUndo();
         return;
       }
 
@@ -2761,6 +2852,13 @@
         $('prevMonthBtn').click();
       } else if (e.key === 'ArrowRight') {
         $('nextMonthBtn').click();
+      }
+    });
+
+    window.addEventListener('beforeunload', (e) => {
+      if (state.cellModalDirty || state.verseModalDirty) {
+        e.preventDefault();
+        e.returnValue = '';
       }
     });
 

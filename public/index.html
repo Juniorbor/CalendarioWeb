@@ -208,13 +208,17 @@
       </div>
 
       <div class="topbar-right">
-        <button type="button" id="tomorrowBtn" class="btn btn-outline btn-reminder" title="Ver lembrete de amanhã e próximos 7 dias">
+        <button type="button" id="tomorrowBtn" class="btn btn-outline btn-reminder" title="Ver lembrete de compromisso de amanhã">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
             <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
           </svg>
-          <span>Lembretes</span>
+          <span>Amanhã</span>
           <span id="tomorrowDot" class="reminder-dot hidden" aria-hidden="true"></span>
+        </button>
+        <button type="button" id="weekPanelBtn" class="btn btn-outline btn-week" title="Painel rápido dos próximos 7 dias">
+          <span>Próx. 7 dias</span>
+          <span id="weekCountBadge" class="week-count-badge hidden">0</span>
         </button>
         <button type="button" id="exportPngBtn" class="btn btn-outline" title="Baixar imagem pronta para enviar no WhatsApp">WhatsApp</button>
         <button type="button" id="shareLinkBtn" class="btn btn-outline admin-only" title="Copiar link público somente leitura para a comunidade">Link Comunidade</button>
@@ -239,11 +243,12 @@
         <span class="lit-pill lit-dourado">Dourado</span>
         <span class="lit-pill lit-preto">Preto</span>
         <button type="button" id="autoLiturgicalBtn" class="btn btn-outline btn-xs admin-only" title="Preencher automaticamente as cores litúrgicas IECLB nos domingos deste mês">Aplicar cores do mês</button>
+        <button type="button" id="undoToolbarBtn" class="btn btn-undo-bar btn-xs admin-only hidden" title="Desfazer última alteração (Ctrl+Z)">Desfazer</button>
       </div>
       <div class="legend-right">
         <div class="view-switch" role="group" aria-label="Modo de visualização">
           <button type="button" id="viewGridBtn" class="view-switch-btn active">Grade</button>
-          <button type="button" id="viewListBtn" class="view-switch-btn">Lista</button>
+          <button type="button" id="viewListBtn" class="view-switch-btn">Lista / Agenda</button>
         </div>
         <div class="legend-tip" id="editModeTip">
           Clique para editar ou arraste um dia para mover
