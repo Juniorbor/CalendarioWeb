@@ -7,8 +7,14 @@ const DB_PATH = IS_SERVERLESS
   ? path.join('/tmp', 'calendario_web_admin_db.json')
   : path.join(__dirname, '..', 'data', 'db.json');
 
+// Suporte nativo a Banco na Nuvem gratuito (Upstash Redis / Vercel KV REST API)
+const CLOUD_REDIS_URL = (process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || '').replace(/\/+$/, '');
+const CLOUD_REDIS_TOKEN = (process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || '').trim();
+const IS_CLOUD_DB = Boolean(CLOUD_REDIS_URL && CLOUD_REDIS_TOKEN);
+const CLOUD_DB_KEY = process.env.CALENDARIO_DB_KEY || 'calendario_paroquia_db_v2';
+
 const SESSION_SHORT_MS = 1000 * 60 * 60 * 12; // 12 horas
-const SESSION_LONG_MS = 1000 * 60 * 60 * 24 * 7; // 7 dias (se "Manter conectado")
+const SESSION_LONG_MS = 1000 * 60 * 60 * 24 * 7; // 7 dias
 const TOKEN_SECRET = process.env.TOKEN_SECRET || 'calendario-web-admin-hmac-secret-2026-v2';
 
 // Proteção contra força bruta (5 tentativas falhas -> bloqueio de 15 min)
@@ -53,27 +59,13 @@ function verifyPassword(password, storedHash) {
 }
 
 function validateStrongPassword(password) {
-  if (typeof password !== 'string') {
-    return 'Informe uma senha válida.';
-  }
-  if (password.length < 8) {
-    return 'A senha deve ter pelo menos 8 caracteres.';
-  }
-  if (password.length > 128) {
-    return 'A senha deve ter no máximo 128 caracteres.';
-  }
-  if (!/[A-Z]/.test(password)) {
-    return 'A senha deve conter pelo menos uma letra maiúscula (A–Z).';
-  }
-  if (!/[a-z]/.test(password)) {
-    return 'A senha deve conter pelo menos uma letra minúscula (a–z).';
-  }
-  if (!/[0-9]/.test(password)) {
-    return 'A senha deve conter pelo menos um número (0–9).';
-  }
-  if (!/[^A-Za-z0-9\s]/.test(password)) {
-    return 'A senha deve conter pelo menos um caractere especial (ex.: ! @ # $ % & *).';
-  }
+  if (typeof password !== 'string') return 'Informe uma senha válida.';
+  if (password.length < 8) return 'A senha deve ter pelo menos 8 caracteres.';
+  if (password.length > 128) return 'A senha deve ter no máximo 128 caracteres.';
+  if (!/[A-Z]/.test(password)) return 'A senha deve conter pelo menos uma letra maiúscula (A–Z).';
+  if (!/[a-z]/.test(password)) return 'A senha deve conter pelo menos uma letra minúscula (a–z).';
+  if (!/[0-9]/.test(password)) return 'A senha deve conter pelo menos um número (0–9).';
+  if (!/[^A-Za-z0-9\s]/.test(password)) return 'A senha deve conter pelo menos um caractere especial (ex.: ! @ # $ % & *).';
   return null;
 }
 
@@ -139,7 +131,8 @@ function verifyCredProof(proof) {
   }
 }
 
-function maybeRestoreAdminFromProof(db, proof) {
+async function maybeRestoreAdminFromProof(db, proof) {
+  if (IS_CLOUD_DB) return false;
   const envHash = (process.env.ADMIN_PASSWORD_HASH || '').trim();
   if (envHash) return false;
   if (db.admin && db.admin.setupCompleted && db.admin.passwordHash) return false;
@@ -153,7 +146,7 @@ function maybeRestoreAdminFromProof(db, proof) {
     sessionNonce: verified.sessionNonce || crypto.randomBytes(16).toString('hex'),
     passwordUpdatedAt: verified.passwordUpdatedAt || null,
   };
-  saveDb(db);
+  await saveDb(db);
   return true;
 }
 
@@ -343,40 +336,102 @@ function createInitialDb() {
       sessionNonce: crypto.randomBytes(16).toString('hex'),
       passwordUpdatedAt: hasEnvPassword ? new Date().toISOString() : null,
     },
+    birthdays: [],
     months: createSeedMonths(),
   };
 }
 
+function normalizeLoadedDb(loaded) {
+  if (!loaded || typeof loaded !== 'object') return createInitialDb();
+  if (!loaded.admin) {
+    const fresh = createInitialDb();
+    fresh.months = loaded.months || fresh.months;
+    fresh.birthdays = Array.isArray(loaded.birthdays) ? loaded.birthdays : [];
+    fresh.updatedAt = typeof loaded.updatedAt === 'number' ? loaded.updatedAt : 0;
+    return fresh;
+  }
+  if (!loaded.admin.sessionNonce) {
+    loaded.admin.sessionNonce = crypto.randomBytes(16).toString('hex');
+  }
+  if (!Array.isArray(loaded.birthdays)) {
+    loaded.birthdays = [];
+  }
+  if (!loaded.months || typeof loaded.months !== 'object') {
+    loaded.months = createSeedMonths();
+  }
+  return loaded;
+}
+
+async function cloudGetDb() {
+  if (!IS_CLOUD_DB) return null;
+  try {
+    const res = await fetch(`${CLOUD_REDIS_URL}/get/${encodeURIComponent(CLOUD_DB_KEY)}`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${CLOUD_REDIS_TOKEN}` },
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    if (!json || typeof json.result !== 'string' || !json.result) return null;
+    return JSON.parse(json.result);
+  } catch (err) {
+    console.error('[CloudDB GET erro]', err.message);
+    return null;
+  }
+}
+
+async function cloudSetDb(dbObj) {
+  if (!IS_CLOUD_DB) return false;
+  try {
+    const res = await fetch(CLOUD_REDIS_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${CLOUD_REDIS_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(['SET', CLOUD_DB_KEY, JSON.stringify(dbObj)]),
+    });
+    return res.ok;
+  } catch (err) {
+    console.error('[CloudDB SET erro]', err.message);
+    return false;
+  }
+}
+
 let memoryDb = null;
 
-function loadDb() {
+async function loadDb() {
+  // Se conectado ao Banco na Nuvem, busca sempre o estado sincronizado mais recente
+  if (IS_CLOUD_DB) {
+    const remote = await cloudGetDb();
+    if (remote) {
+      memoryDb = normalizeLoadedDb(remote);
+      return memoryDb;
+    }
+    if (!memoryDb) {
+      memoryDb = createInitialDb();
+      await cloudSetDb(memoryDb);
+    }
+    return memoryDb;
+  }
+
   if (memoryDb) return memoryDb;
   try {
     if (fs.existsSync(DB_PATH)) {
       const loaded = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
-      // Migra banco antigo multi-usuário para formato exclusivo Admin (exigindo criação de senha segura)
-      if (!loaded.admin) {
-        const fresh = createInitialDb();
-        fresh.months = loaded.months || fresh.months;
-        fresh.updatedAt = typeof loaded.updatedAt === 'number' ? loaded.updatedAt : 0;
-        memoryDb = fresh;
-        saveDb(memoryDb);
-        return memoryDb;
-      }
-      if (!loaded.admin.sessionNonce) {
-        loaded.admin.sessionNonce = crypto.randomBytes(16).toString('hex');
-      }
-      memoryDb = loaded;
+      memoryDb = normalizeLoadedDb(loaded);
       return memoryDb;
     }
   } catch {}
   memoryDb = createInitialDb();
-  saveDb(memoryDb);
+  await saveDb(memoryDb);
   return memoryDb;
 }
 
-function saveDb(dbObj) {
+async function saveDb(dbObj) {
   memoryDb = dbObj;
+  if (IS_CLOUD_DB) {
+    await cloudSetDb(dbObj);
+  }
   try {
     ensureDir(path.dirname(DB_PATH));
     const tmpPath = `${DB_PATH}.tmp`;
@@ -510,6 +565,19 @@ function sanitizeSchedule(raw) {
   return list;
 }
 
+function sanitizeTeam(raw) {
+  if (!Array.isArray(raw)) return [];
+  const list = [];
+  for (const item of raw.slice(0, 10)) {
+    if (!item || typeof item !== 'object') continue;
+    const role = sanitizeText(item.role || '', 45);
+    const person = sanitizeText(item.person || '', 80);
+    if (!role && !person) continue;
+    list.push({ role, person });
+  }
+  return list;
+}
+
 function sanitizeCellPayload(body, username) {
   if (!body || typeof body !== 'object') return null;
   let customImage = '';
@@ -522,10 +590,13 @@ function sanitizeCellPayload(body, username) {
   }
 
   const schedule = sanitizeSchedule(body.schedule);
+  const team = sanitizeTeam(body.team);
   const cleaned = {
     title: sanitizeText(body.title, 140),
     notes: sanitizeText(body.notes, 1500),
     schedule,
+    team,
+    teamPublic: Boolean(body.teamPublic),
     liturgicalColor: sanitizeText(body.liturgicalColor, 30).toLowerCase(),
     cellColor: sanitizeText(body.cellColor, 30).toLowerCase(),
     tag: sanitizeText(body.tag, 40),
@@ -540,6 +611,7 @@ function sanitizeCellPayload(body, username) {
     !cleaned.title &&
     !cleaned.notes &&
     cleaned.schedule.length === 0 &&
+    cleaned.team.length === 0 &&
     !cleaned.liturgicalColor &&
     !cleaned.cellColor &&
     !cleaned.tag &&
@@ -549,6 +621,61 @@ function sanitizeCellPayload(body, username) {
   return isEmpty ? null : cleaned;
 }
 
+function filterCellsForPublic(cells) {
+  const out = {};
+  for (const [k, cell] of Object.entries(cells || {})) {
+    const copy = { ...cell };
+    if (!copy.teamPublic) {
+      delete copy.team;
+    }
+    delete copy.updatedBy;
+    out[k] = copy;
+  }
+  return out;
+}
+
+function getBirthdaysForMonth(db, monthNum) {
+  const m = Number(monthNum);
+  return (db.birthdays || [])
+    .filter((b) => Number(b.month) === m)
+    .sort((a, b) => a.day - b.day || a.name.localeCompare(b.name));
+}
+
+function buildYearSummary(db, yearNum) {
+  const summary = {};
+  for (let m = 1; m <= 12; m++) {
+    const mKey = `${yearNum}-${String(m).padStart(2, '0')}`;
+    const mData = db.months[mKey] || { verse: '', cells: {} };
+    const eventDays = [];
+    const sundayColors = {};
+    for (const [cKey, cell] of Object.entries(mData.cells || {})) {
+      if (!cKey.startsWith('day-')) continue;
+      const dNum = Number(cKey.replace('day-', ''));
+      if (!Number.isInteger(dNum)) continue;
+      const hasEvent = Boolean(
+        cell.title ||
+          cell.notes ||
+          cell.tag ||
+          (Array.isArray(cell.schedule) && cell.schedule.length > 0) ||
+          (Array.isArray(cell.team) && cell.team.length > 0)
+      );
+      if (hasEvent) eventDays.push(dNum);
+      if (cell.liturgicalColor) sundayColors[dNum] = cell.liturgicalColor;
+    }
+    const birthdayDays = Array.from(
+      new Set((db.birthdays || []).filter((b) => Number(b.month) === m).map((b) => Number(b.day)))
+    ).sort((a, b) => a - b);
+
+    summary[m] = {
+      verse: mData.verse || '',
+      eventDays: eventDays.sort((a, b) => a - b),
+      sundayColors,
+      birthdayDays,
+    };
+  }
+  return summary;
+}
+
 function cookieFlags(maxAgeSec) {
   const secure = IS_SERVERLESS ? '; Secure' : '';
   return `HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAgeSec}${secure}`;
@@ -556,10 +683,10 @@ function cookieFlags(maxAgeSec) {
 
 module.exports = async function handler(req, res) {
   try {
-    const db = loadDb();
+    const db = await loadDb();
     const headerProof = req.headers['x-admin-cred-proof'];
     if (typeof headerProof === 'string' && headerProof) {
-      maybeRestoreAdminFromProof(db, headerProof);
+      await maybeRestoreAdminFromProof(db, headerProof);
     }
     const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const pathname = urlObj.pathname;
@@ -576,12 +703,22 @@ module.exports = async function handler(req, res) {
       const now = new Date();
       return sendJson(res, 200, {
         publicMode: true,
+        cloudDbConnected: IS_CLOUD_DB,
         serverToday: {
           year: now.getFullYear(),
           month: now.getMonth() + 1,
           day: now.getDate(),
         },
       });
+    }
+
+    const pubYearMatch = pathname.match(/^\/api\/public\/calendar\/year\/(\d{4})$/);
+    if (pubYearMatch && method === 'GET') {
+      const y = Number(pubYearMatch[1]);
+      if (!Number.isInteger(y) || y < 1900 || y > 2200) {
+        return sendJson(res, 400, { error: 'Ano inválido.' });
+      }
+      return sendJson(res, 200, { year: y, months: buildYearSummary(db, y) });
     }
 
     const pubCalMatch = pathname.match(/^\/api\/public\/calendar\/(\d{4})\/(\d{1,2})$/);
@@ -593,21 +730,23 @@ module.exports = async function handler(req, res) {
         monthKey,
         verse: monthData.verse || '',
         versePinned: Boolean(monthData.versePinned),
-        cells: monthData.cells || {},
+        cells: filterCellsForPublic(monthData.cells || {}),
+        birthdays: getBirthdaysForMonth(db, Number(pubCalMatch[2])),
       });
     }
 
-    // GET /api/auth/status (informa se já existe senha criada ou se exige configuração inicial)
+    // GET /api/auth/status
     if (pathname === '/api/auth/status' && method === 'GET') {
       const setupRequired = !db.admin || !db.admin.setupCompleted || !db.admin.passwordHash;
       return sendJson(res, 200, {
         setupRequired,
         adminOnly: true,
         isServerless: IS_SERVERLESS,
+        cloudDbConnected: IS_CLOUD_DB,
       });
     }
 
-    // POST /api/auth/setup (criação segura da senha do Administrador no primeiro acesso)
+    // POST /api/auth/setup
     if (pathname === '/api/auth/setup' && method === 'POST') {
       if (db.admin && db.admin.setupCompleted && db.admin.passwordHash) {
         return sendJson(res, 403, { error: 'A senha do administrador já foi configurada. Faça login.' });
@@ -636,7 +775,7 @@ module.exports = async function handler(req, res) {
         sessionNonce: crypto.randomBytes(16).toString('hex'),
         passwordUpdatedAt: new Date().toISOString(),
       };
-      saveDb(db);
+      await saveDb(db);
 
       const token = createSignedToken(db.admin, SESSION_SHORT_MS);
       const credProof = createCredProof(db.admin);
@@ -660,16 +799,16 @@ module.exports = async function handler(req, res) {
       );
     }
 
-    // POST /api/login (somente Administrador, com proteção contra força bruta)
+    // POST /api/login
     if (pathname === '/api/login' && method === 'POST') {
       const body = await readJsonBody(req);
       if (typeof body.credProof === 'string' && body.credProof) {
-        maybeRestoreAdminFromProof(db, body.credProof);
+        await maybeRestoreAdminFromProof(db, body.credProof);
       }
 
       if (!db.admin || !db.admin.setupCompleted || !db.admin.passwordHash) {
         return sendJson(res, 409, {
-          error: 'Nenhuma senha do administrador está ativa neste servidor ainda. Clique em "Criar / configurar senha do administrador" abaixo para definir seu acesso.',
+          error: 'Nenhuma senha do administrador está ativa neste servidor ainda. Clique em "Primeiro acesso? Criar senha do administrador" abaixo para definir seu acesso.',
           setupRequired: true,
         });
       }
@@ -748,6 +887,7 @@ module.exports = async function handler(req, res) {
         user: adminUser,
         passwordUpdatedAt: db.admin.passwordUpdatedAt,
         isServerless: IS_SERVERLESS,
+        cloudDbConnected: IS_CLOUD_DB,
         updatedAt: db.updatedAt || 0,
         serverToday: {
           year: now.getFullYear(),
@@ -757,12 +897,13 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    // PUT /api/me/password (alteração segura de senha + invalidação imediata de sessões antigas)
+    // PUT /api/me/password
     if (pathname === '/api/me/password' && method === 'PUT') {
       const body = await readJsonBody(req);
       const currentPassword = typeof body.currentPassword === 'string' ? body.currentPassword : '';
       const newPassword = typeof body.newPassword === 'string' ? body.newPassword : '';
-      const newUsernameRaw = body.username !== undefined ? sanitizeText(body.username, 40).toLowerCase().replace(/[^a-z0-9._-]/g, '') : '';
+      const newUsernameRaw =
+        body.username !== undefined ? sanitizeText(body.username, 40).toLowerCase().replace(/[^a-z0-9._-]/g, '') : '';
       const newDisplayName = body.displayName !== undefined ? sanitizeText(body.displayName, 80) : '';
 
       if (!verifyPassword(currentPassword, db.admin.passwordHash)) {
@@ -785,9 +926,8 @@ module.exports = async function handler(req, res) {
       if (newDisplayName) db.admin.displayName = newDisplayName;
       db.admin.passwordHash = newHash;
       db.admin.passwordUpdatedAt = new Date().toISOString();
-      // Rotaciona o nonce: invalida instantaneamente qualquer sessão antiga em outros navegadores
       db.admin.sessionNonce = crypto.randomBytes(16).toString('hex');
-      saveDb(db);
+      await saveDb(db);
 
       const freshToken = createSignedToken(db.admin, SESSION_SHORT_MS);
       const credProof = createCredProof(db.admin);
@@ -813,10 +953,10 @@ module.exports = async function handler(req, res) {
       );
     }
 
-    // POST /api/auth/revoke-all (encerra todas as sessões em todos os dispositivos)
+    // POST /api/auth/revoke-all
     if (pathname === '/api/auth/revoke-all' && method === 'POST') {
       db.admin.sessionNonce = crypto.randomBytes(16).toString('hex');
-      saveDb(db);
+      await saveDb(db);
       return sendJson(
         res,
         200,
@@ -836,20 +976,82 @@ module.exports = async function handler(req, res) {
       const body = await readJsonBody(req);
       const clientUpdatedAt = Number(body.updatedAt) || 0;
       if (
+        !IS_CLOUD_DB &&
         body.months &&
         typeof body.months === 'object' &&
         !Array.isArray(body.months) &&
         clientUpdatedAt > (db.updatedAt || 0)
       ) {
         db.months = body.months;
+        if (Array.isArray(body.birthdays)) db.birthdays = body.birthdays;
         db.updatedAt = clientUpdatedAt;
-        saveDb(db);
+        await saveDb(db);
       }
       return sendJson(res, 200, {
         ok: true,
         updatedAt: db.updatedAt || 0,
         months: db.months,
+        birthdays: db.birthdays || [],
       });
+    }
+
+    // GET /api/birthdays
+    if (pathname === '/api/birthdays' && method === 'GET') {
+      const list = [...(db.birthdays || [])].sort(
+        (a, b) => a.month - b.month || a.day - b.day || a.name.localeCompare(b.name)
+      );
+      return sendJson(res, 200, { birthdays: list });
+    }
+
+    // POST /api/birthdays
+    if (pathname === '/api/birthdays' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const name = sanitizeText(body.name, 80);
+      const day = Number(body.day);
+      const month = Number(body.month);
+      const note = sanitizeText(body.note || '', 120);
+      if (name.length < 2) {
+        return sendJson(res, 400, { error: 'Informe o nome do aniversariante.' });
+      }
+      if (!Number.isInteger(month) || month < 1 || month > 12) {
+        return sendJson(res, 400, { error: 'Mês inválido.' });
+      }
+      const maxDay = new Date(2024, month, 0).getDate(); // 2024 bissexto aceita 29/02
+      if (!Number.isInteger(day) || day < 1 || day > maxDay) {
+        return sendJson(res, 400, { error: `Dia inválido para o mês selecionado (1 a ${maxDay}).` });
+      }
+      const item = {
+        id: `bday-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`,
+        name,
+        day,
+        month,
+        note,
+      };
+      if (!Array.isArray(db.birthdays)) db.birthdays = [];
+      db.birthdays.push(item);
+      db.updatedAt = Date.now();
+      await saveDb(db);
+      return sendJson(res, 201, { ok: true, birthday: item, birthdays: db.birthdays, updatedAt: db.updatedAt });
+    }
+
+    // DELETE /api/birthdays/:id
+    const bdayDelMatch = pathname.match(/^\/api\/birthdays\/([a-z0-9-]+)$/);
+    if (bdayDelMatch && method === 'DELETE') {
+      const targetId = bdayDelMatch[1];
+      db.birthdays = (db.birthdays || []).filter((b) => b.id !== targetId);
+      db.updatedAt = Date.now();
+      await saveDb(db);
+      return sendJson(res, 200, { ok: true, birthdays: db.birthdays, updatedAt: db.updatedAt });
+    }
+
+    // GET /api/calendar/year/:year (Visão Anual - 12 meses)
+    const yearMatch = pathname.match(/^\/api\/calendar\/year\/(\d{4})$/);
+    if (yearMatch && method === 'GET') {
+      const y = Number(yearMatch[1]);
+      if (!Number.isInteger(y) || y < 1900 || y > 2200) {
+        return sendJson(res, 400, { error: 'Ano inválido.' });
+      }
+      return sendJson(res, 200, { year: y, months: buildYearSummary(db, y) });
     }
 
     // GET /api/calendar/search
@@ -876,17 +1078,33 @@ module.exports = async function handler(req, res) {
             const schedText = Array.isArray(cell.schedule)
               ? cell.schedule.map((s) => `${s.time || ''} ${s.text || ''}`).join(' ')
               : '';
-            const hay = `${cell.title || ''} ${cell.notes || ''} ${schedText} ${cell.liturgicalColor || ''} ${cell.tag || ''}`.toLowerCase();
+            const teamText = Array.isArray(cell.team)
+              ? cell.team.map((t) => `${t.role || ''} ${t.person || ''}`).join(' ')
+              : '';
+            const hay = `${cell.title || ''} ${cell.notes || ''} ${schedText} ${teamText} ${cell.liturgicalColor || ''} ${cell.tag || ''}`.toLowerCase();
             if (hay.includes(q)) {
               results.push({
                 year,
                 month,
                 cellKey,
                 title: cell.title || cell.tag || cellKey,
-                snippet: schedText.trim() || cell.notes || cell.liturgicalColor || '',
+                snippet: schedText.trim() || teamText.trim() || cell.notes || cell.liturgicalColor || '',
               });
             }
           }
+        }
+      }
+      // Também inclui aniversariantes na busca
+      const curYear = new Date().getFullYear();
+      for (const b of db.birthdays || []) {
+        if (`${b.name} ${b.note || ''} aniversario`.toLowerCase().includes(q)) {
+          results.push({
+            year: curYear,
+            month: b.month,
+            cellKey: `day-${b.day}`,
+            title: `Aniversariante: ${b.name}`,
+            snippet: b.note || `Todo dia ${String(b.day).padStart(2, '0')}/${String(b.month).padStart(2, '0')}`,
+          });
         }
       }
       results.sort((a, b) => a.year - b.year || a.month - b.month);
@@ -904,6 +1122,7 @@ module.exports = async function handler(req, res) {
         verse: monthData.verse || '',
         versePinned: Boolean(monthData.versePinned),
         cells: monthData.cells || {},
+        birthdays: getBirthdaysForMonth(db, Number(calMatch[2])),
         updatedAt: db.updatedAt || 0,
       });
     }
@@ -924,7 +1143,7 @@ module.exports = async function handler(req, res) {
       db.months[monthKey].updatedBy = adminUser.username;
       db.months[monthKey].updatedAt = new Date().toISOString();
       db.updatedAt = Date.now();
-      saveDb(db);
+      await saveDb(db);
       return sendJson(res, 200, { ok: true, verse, versePinned, updatedAt: db.updatedAt });
     }
 
@@ -949,7 +1168,7 @@ module.exports = async function handler(req, res) {
       }
 
       db.updatedAt = Date.now();
-      saveDb(db);
+      await saveDb(db);
       return sendJson(res, 200, {
         ok: true,
         cellKey,
@@ -958,7 +1177,7 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    // POST /api/calendar/:year/:month/batch-cells (cores litúrgicas auto, repetição, mover/copiar, desfazer)
+    // POST /api/calendar/:year/:month/batch-cells
     const batchMatch = pathname.match(/^\/api\/calendar\/(\d{4})\/(\d{1,2})\/batch-cells$/);
     if (batchMatch && method === 'POST') {
       const monthKey = isValidMonthKey(batchMatch[1], batchMatch[2]);
@@ -982,7 +1201,7 @@ module.exports = async function handler(req, res) {
       }
 
       db.updatedAt = Date.now();
-      saveDb(db);
+      await saveDb(db);
       return sendJson(res, 200, {
         ok: true,
         monthKey,
@@ -997,6 +1216,7 @@ module.exports = async function handler(req, res) {
         exportedAt: new Date().toISOString(),
         exportedBy: adminUser.username,
         months: db.months,
+        birthdays: db.birthdays || [],
       });
     }
 
@@ -1007,9 +1227,17 @@ module.exports = async function handler(req, res) {
         return sendJson(res, 400, { error: 'Arquivo de backup inválido.' });
       }
       db.months = body.months;
+      if (Array.isArray(body.birthdays)) {
+        db.birthdays = body.birthdays;
+      }
       db.updatedAt = Date.now();
-      saveDb(db);
-      return sendJson(res, 200, { ok: true, count: Object.keys(db.months).length, updatedAt: db.updatedAt });
+      await saveDb(db);
+      return sendJson(res, 200, {
+        ok: true,
+        count: Object.keys(db.months).length,
+        birthdaysCount: (db.birthdays || []).length,
+        updatedAt: db.updatedAt,
+      });
     }
 
     return sendJson(res, 404, { error: 'Rota da API não encontrada.' });

@@ -2362,6 +2362,343 @@ body {
 }
 
 /* =========================
+   OPÇÕES 1, 5, 6 E 7 — NUVEM, ANIVERSARIANTES, ESCALA & VISÃO ANUAL
+   ========================= */
+.qrole {
+  background: var(--surface-muted);
+  border: 1px solid var(--border-grid);
+  color: var(--text-secondary);
+  padding: 3px 9px;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.qrole:hover {
+  background: var(--blue-soft);
+  color: var(--blue-primary);
+  border-color: var(--blue-border);
+}
+
+.checkbox-subtle {
+  margin-top: 4px;
+  font-size: 0.84rem;
+  color: var(--text-muted);
+}
+
+/* Escala de Equipe dentro dos quadrados (escala automática com --fit-scale) */
+.cell-team {
+  display: flex;
+  flex-direction: column;
+  gap: calc(2px * var(--fit-scale, 1));
+  padding-top: calc(3px * var(--fit-scale, 1));
+  border-top: 1px dashed rgba(148, 163, 184, 0.45);
+}
+
+.cell-team-row {
+  font-size: calc(0.78rem * var(--fit-scale, 1));
+  line-height: 1.28;
+  color: #475569;
+  overflow-wrap: break-word;
+}
+
+.cell-team-role {
+  color: #1e3a5f;
+  font-weight: 500;
+}
+
+/* Aniversariantes dentro dos quadrados (escala automática com --fit-scale) */
+.cell-birthday-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(6px * var(--fit-scale, 1));
+  width: 100%;
+  font-size: calc(0.8rem * var(--fit-scale, 1));
+  line-height: 1.25;
+  color: #9d174d;
+  background: #fdf2f8;
+  border: 1px solid #fbcfe8;
+  border-radius: 5px;
+  padding: calc(3px * var(--fit-scale, 1)) calc(6px * var(--fit-scale, 1));
+  flex-shrink: 0;
+}
+
+.cell-birthday-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+/* Modal Aniversariantes */
+.birthdays-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.bday-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: #ffffff;
+}
+
+.bday-row-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.bday-date-pill {
+  flex-shrink: 0;
+  padding: 3px 9px;
+  border-radius: 6px;
+  background: #fdf2f8;
+  border: 1px solid #fbcfe8;
+  color: #9d174d;
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+.bday-name {
+  font-size: 0.94rem;
+  font-weight: 500;
+  color: var(--text-main);
+}
+
+.bday-note {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* Status do Banco na Nuvem */
+.cloud-status-box {
+  padding: 13px 15px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-grid);
+  background: var(--surface-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cloud-status-box.connected {
+  background: #ecfdf5;
+  border-color: #6ee7b7;
+}
+
+.cloud-status-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.94rem;
+  font-weight: 500;
+  color: var(--text-main);
+}
+
+.cloud-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #d97706;
+  flex-shrink: 0;
+}
+
+.cloud-status-box.connected .cloud-dot {
+  background: #059669;
+}
+
+.cloud-status-desc {
+  margin: 0;
+  font-size: 0.84rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+/* Modal Visão Anual (12 Meses) */
+.modal-xl {
+  max-width: 1080px;
+}
+
+.year-modal-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.year-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.year-overview-num {
+  font-size: 1.25rem;
+  font-weight: 500;
+  color: var(--blue-navy);
+  min-width: 60px;
+  text-align: center;
+}
+
+.year-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.yl-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.yl-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.yl-event { background: #2563eb; }
+.yl-holiday { background: #dc2626; }
+.yl-bday { background: #db2777; }
+.yl-today { background: #0f172a; }
+
+.year-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.mini-month-card {
+  border: 1px solid var(--border-grid);
+  border-radius: var(--radius-md);
+  background: #ffffff;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.mini-month-card.is-current-month {
+  border-color: var(--blue-primary);
+  box-shadow: 0 0 0 1px var(--blue-primary);
+}
+
+.mini-month-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 10px;
+  background: var(--blue-navy);
+  color: #ffffff;
+  font-size: 0.84rem;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  width: 100%;
+  font-family: inherit;
+}
+
+.mini-month-head:hover {
+  background: var(--blue-primary);
+}
+
+.mini-month-count {
+  font-size: 0.72rem;
+  background: rgba(255, 255, 255, 0.18);
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+
+.mini-month-wd {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  text-align: center;
+  padding: 5px 6px 2px;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+.mini-month-days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  padding: 4px 6px 8px;
+}
+
+.mini-day {
+  position: relative;
+  border: none;
+  background: transparent;
+  border-radius: 5px;
+  padding: 4px 0;
+  font-family: inherit;
+  font-size: 0.76rem;
+  color: var(--text-main);
+  cursor: pointer;
+  text-align: center;
+}
+
+.mini-day:hover {
+  background: var(--blue-soft);
+  color: var(--blue-primary);
+}
+
+.mini-day.has-event {
+  background: #dbeafe;
+  color: #1e40af;
+  font-weight: 500;
+}
+
+.mini-day.has-holiday {
+  box-shadow: inset 0 0 0 1px #f87171;
+  color: #991b1b;
+}
+
+.mini-day.has-bday::after {
+  content: '';
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #db2777;
+}
+
+.mini-day.is-today {
+  background: #0f172a !important;
+  color: #ffffff !important;
+}
+
+@media (max-width: 960px) {
+  .year-overview-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .year-overview-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* =========================
    RESPONSIVIDADE (TABLET & CELULAR)
    ========================= */
 @media (max-width: 1024px) {

@@ -3,7 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Calendário Mensal — Acesso Administrativo</title>
+  <title>Calendário Mensal — Paróquia Martim Lutero</title>
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#1e3a5f" />
+  <link rel="icon" type="image/png" href="/images/logo-paroquia.png" />
+  <link rel="apple-touch-icon" href="/images/logo-paroquia.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Calendário" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet" />
@@ -240,14 +247,17 @@
               <div class="menu-group">
                 <div class="menu-group-title">Agenda e Avisos</div>
                 <button type="button" id="weekPanelBtn" class="menu-item" role="menuitem">Próximos 7 dias</button>
+                <button type="button" id="openYearViewBtn" class="menu-item" role="menuitem">Visão anual (12 meses)</button>
+                <button type="button" id="openBirthdaysBtn" class="menu-item admin-only" role="menuitem">Aniversariantes da comunidade</button>
                 <button type="button" id="openSearchBtn" class="menu-item admin-only" role="menuitem">Buscar no calendário</button>
               </div>
 
               <div class="menu-group">
-                <div class="menu-group-title">Compartilhar e Imprimir</div>
+                <div class="menu-group-title">Compartilhar e Aplicativo</div>
                 <button type="button" id="exportPngBtn" class="menu-item" role="menuitem">Baixar imagem para WhatsApp</button>
                 <button type="button" id="shareLinkBtn" class="menu-item admin-only" role="menuitem">Copiar link da Comunidade</button>
                 <button type="button" id="printBtn" class="menu-item" role="menuitem">Imprimir calendário (mural)</button>
+                <button type="button" id="installPwaBtn" class="menu-item" role="menuitem">Instalar como aplicativo no celular</button>
               </div>
 
               <div class="menu-group admin-only">
@@ -389,6 +399,26 @@
         <div class="field">
           <label for="cellNotes">Observações / Detalhes / Reflexão</label>
           <textarea id="cellNotes" rows="3" maxlength="1500" placeholder="Adicione observações adicionais, nomes ou reflexões para este quadrado..."></textarea>
+        </div>
+
+        <div class="field">
+          <div class="field-header-inline">
+            <label>Escala de Equipe / Responsáveis (opcional)</label>
+            <button type="button" id="addTeamBtn" class="btn btn-outline btn-xs">+ Adicionar função</button>
+          </div>
+          <div class="quick-tags">
+            <button type="button" class="qrole" data-role="Pregação">Pregação</button>
+            <button type="button" class="qrole" data-role="Liturgia">Liturgia</button>
+            <button type="button" class="qrole" data-role="Música / Coral">Música / Coral</button>
+            <button type="button" class="qrole" data-role="Recepção">Recepção</button>
+            <button type="button" class="qrole" data-role="Projeção / Som">Projeção / Som</button>
+            <button type="button" class="qrole" data-role="Escola Bíblica">Escola Bíblica</button>
+          </div>
+          <div id="teamEditorList" class="schedule-editor-list"></div>
+          <label class="checkbox-row checkbox-subtle">
+            <input type="checkbox" id="cellTeamPublic" />
+            <span>Exibir escala também no link público da comunidade</span>
+          </label>
         </div>
 
         <div class="field">
@@ -647,8 +677,15 @@
           <div id="passwordUpdatedMeta" class="meta-info"></div>
         </div>
 
-        <!-- Aba Backup -->
+        <!-- Aba Backup e Nuvem -->
         <div id="tabBackup" class="tab-panel">
+          <div id="cloudDbStatusBox" class="cloud-status-box">
+            <div class="cloud-status-head">
+              <span id="cloudStatusDot" class="cloud-dot"></span>
+              <span id="cloudStatusTitle">Verificando banco na nuvem...</span>
+            </div>
+            <p id="cloudStatusDesc" class="cloud-status-desc"></p>
+          </div>
           <div class="backup-cards">
             <div class="backup-box">
               <h3>Exportar Dados do Calendário</h3>
@@ -663,6 +700,98 @@
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: ANIVERSARIANTES DA COMUNIDADE (REPETIÇÃO ANUAL AUTOMÁTICA) -->
+  <div id="birthdaysModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="birthdaysModalTitle">
+    <div class="modal-card modal-lg">
+      <div class="modal-header">
+        <div>
+          <h2 id="birthdaysModalTitle">Aniversariantes da Comunidade</h2>
+          <p class="modal-sub">Cadastre uma única vez — o sistema exibe automaticamente todos os anos na data certa.</p>
+        </div>
+        <button type="button" class="modal-close" data-close="birthdaysModal" aria-label="Fechar">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="birthdayForm" class="create-user-box">
+          <h3>Novo Aniversariante</h3>
+          <div class="form-row-2">
+            <div class="field">
+              <label for="bdayName">Nome completo</label>
+              <input id="bdayName" type="text" maxlength="80" placeholder="Ex.: Maria Aparecida Silva" required />
+            </div>
+            <div class="field">
+              <label for="bdayNote">Observação (opcional)</label>
+              <input id="bdayNote" type="text" maxlength="120" placeholder="Ex.: Coral, Presbitério, Jovens..." />
+            </div>
+          </div>
+          <div class="form-row-2">
+            <div class="field">
+              <label for="bdayDay">Dia</label>
+              <input id="bdayDay" type="number" min="1" max="31" placeholder="1 a 31" required />
+            </div>
+            <div class="field">
+              <label for="bdayMonth">Mês</label>
+              <select id="bdayMonth" required>
+                <option value="1">Janeiro</option>
+                <option value="2">Fevereiro</option>
+                <option value="3">Março</option>
+                <option value="4">Abril</option>
+                <option value="5">Maio</option>
+                <option value="6">Junho</option>
+                <option value="7">Julho</option>
+                <option value="8">Agosto</option>
+                <option value="9">Setembro</option>
+                <option value="10">Outubro</option>
+                <option value="11">Novembro</option>
+                <option value="12">Dezembro</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <button type="submit" class="btn btn-primary">Cadastrar Aniversariante</button>
+          </div>
+        </form>
+
+        <div class="field">
+          <input id="bdayFilterInput" type="search" placeholder="Filtrar aniversariantes por nome ou mês..." />
+        </div>
+        <div id="birthdaysList" class="birthdays-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: VISÃO ANUAL (12 MESES) -->
+  <div id="yearOverviewModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="yearOverviewTitle">
+    <div class="modal-card modal-xl">
+      <div class="modal-header">
+        <div>
+          <h2 id="yearOverviewTitle">Visão Anual — 12 Meses</h2>
+          <p class="modal-sub">Clique em qualquer mês ou dia para abrir diretamente no calendário.</p>
+        </div>
+        <button type="button" class="modal-close" data-close="yearOverviewModal" aria-label="Fechar">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="year-modal-bar">
+          <div class="year-stepper">
+            <button type="button" id="yearOverviewPrevBtn" class="btn btn-outline btn-icon" aria-label="Ano anterior">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+            </button>
+            <span id="yearOverviewLabel" class="year-overview-num">2026</span>
+            <button type="button" id="yearOverviewNextBtn" class="btn btn-outline btn-icon" aria-label="Próximo ano">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </button>
+          </div>
+          <div class="year-legend">
+            <span class="yl-item"><i class="yl-dot yl-event"></i>Compromisso</span>
+            <span class="yl-item"><i class="yl-dot yl-holiday"></i>Feriado</span>
+            <span class="yl-item"><i class="yl-dot yl-bday"></i>Aniversariante</span>
+            <span class="yl-item"><i class="yl-dot yl-today"></i>Hoje</span>
+          </div>
+        </div>
+        <div id="yearOverviewGrid" class="year-overview-grid"></div>
       </div>
     </div>
   </div>

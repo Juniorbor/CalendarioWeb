@@ -90,6 +90,11 @@
     viewYear: new Date().getFullYear(),
     viewMonth: new Date().getMonth() + 1,
     monthData: { verse: '', versePinned: false, cells: {} },
+    monthBirthdays: [],
+    allBirthdays: [],
+    cloudDbConnected: false,
+    yearOverviewYear: new Date().getFullYear(),
+    deferredInstallPrompt: null,
     editingCellKey: null,
     editingCellInfo: null,
     cellModalDirty: false,
@@ -321,11 +326,16 @@
     return null;
   }
 
-  function writeCachedMonths(months, updatedAt) {
+  function writeCachedMonths(months, updatedAt, birthdays = null) {
     try {
+      const prev = readCachedMonths() || {};
       localStorage.setItem(
         CACHE_STORAGE_KEY,
-        JSON.stringify({ months, updatedAt: Number(updatedAt) || Date.now() })
+        JSON.stringify({
+          months,
+          birthdays: Array.isArray(birthdays) ? birthdays : prev.birthdays || [],
+          updatedAt: Number(updatedAt) || Date.now(),
+        })
       );
     } catch {}
   }
@@ -339,7 +349,7 @@
         body: JSON.stringify(body),
       });
       if (res && res.months) {
-        writeCachedMonths(res.months, res.updatedAt || Date.now());
+        writeCachedMonths(res.months, res.updatedAt || Date.now(), res.birthdays || []);
       }
     } catch {}
   }
@@ -529,42 +539,50 @@
     return getDayInfoOffset(1);
   }
 
-  async function fetchMonthCellsCached(year, month, cacheObj) {
+  async function fetchMonthBundleCached(year, month, cacheObj) {
     const key = `${year}-${month}`;
     if (cacheObj[key]) return cacheObj[key];
     if (state.viewYear === year && state.viewMonth === month) {
-      cacheObj[key] = state.monthData.cells || {};
+      cacheObj[key] = {
+        cells: state.monthData.cells || {},
+        birthdays: state.monthBirthdays || [],
+      };
       return cacheObj[key];
     }
     try {
       const res = await apiFetch(`${getCalendarApiPrefix()}/${year}/${month}`);
-      cacheObj[key] = res.cells || {};
+      cacheObj[key] = {
+        cells: res.cells || {},
+        birthdays: Array.isArray(res.birthdays) ? res.birthdays : [],
+      };
       return cacheObj[key];
     } catch {
-      cacheObj[key] = {};
+      cacheObj[key] = { cells: {}, birthdays: [] };
       return cacheObj[key];
     }
   }
 
-  function cellHasRealAppointment(cellData, holidayName) {
+  function cellHasRealAppointment(cellData, holidayName, dayBirthdays = []) {
     const hasCustom = Boolean(
       cellData &&
         (cellData.title ||
           cellData.notes ||
           cellData.tag ||
-          (Array.isArray(cellData.schedule) && cellData.schedule.length > 0))
+          (Array.isArray(cellData.schedule) && cellData.schedule.length > 0) ||
+          (Array.isArray(cellData.team) && cellData.team.length > 0))
     );
-    return Boolean(hasCustom || holidayName);
+    return Boolean(hasCustom || holidayName || (Array.isArray(dayBirthdays) && dayBirthdays.length > 0));
   }
 
   async function checkTomorrowReminder({ autoPopup = false } = {}) {
     const info = getTomorrowInfo();
     const monthCache = {};
-    const cells = await fetchMonthCellsCached(info.year, info.month, monthCache);
-    const cellData = cells[info.cellKey] || null;
-    const hasAppointment = cellHasRealAppointment(cellData, info.holidayName);
+    const bundle = await fetchMonthBundleCached(info.year, info.month, monthCache);
+    const cellData = bundle.cells[info.cellKey] || null;
+    const dayBirthdays = bundle.birthdays.filter((b) => Number(b.day) === info.day);
+    const hasAppointment = cellHasRealAppointment(cellData, info.holidayName, dayBirthdays);
 
-    state.tomorrowReminder = { info, cellData, hasAppointment };
+    state.tomorrowReminder = { info, cellData, dayBirthdays, hasAppointment };
 
     const btn = $('tomorrowBtn');
     const dot = $('tomorrowDot');
@@ -593,10 +611,11 @@
     const items = [];
     for (let offset = 1; offset <= 7; offset++) {
       const info = getDayInfoOffset(offset);
-      const cells = await fetchMonthCellsCached(info.year, info.month, monthCache);
-      const cellData = cells[info.cellKey] || null;
-      if (cellHasRealAppointment(cellData, info.holidayName)) {
-        items.push({ info, cellData, offset });
+      const bundle = await fetchMonthBundleCached(info.year, info.month, monthCache);
+      const cellData = bundle.cells[info.cellKey] || null;
+      const dayBirthdays = bundle.birthdays.filter((b) => Number(b.day) === info.day);
+      if (cellHasRealAppointment(cellData, info.holidayName, dayBirthdays)) {
+        items.push({ info, cellData, dayBirthdays, offset });
       }
     }
     return items;
@@ -656,11 +675,22 @@
 
         const title = document.createElement('div');
         title.className = 'notepad-week-title';
+        const bdayLabel =
+          item.dayBirthdays && item.dayBirthdays.length > 0
+            ? `Aniversariante(s): ${item.dayBirthdays.map((b) => b.name).join(', ')}`
+            : '';
         title.textContent =
-          item.cellData?.title || item.info.holidayName || item.cellData?.tag || 'Compromisso agendado';
+          item.cellData?.title ||
+          item.info.holidayName ||
+          bdayLabel ||
+          item.cellData?.tag ||
+          'Compromisso agendado';
         titleRow.appendChild(title);
 
-        const themeImg = resolveThemeImage(item.cellData, item.cellData?.title ? '' : item.info.holidayName);
+        const themeImg = resolveThemeImage(
+          item.cellData,
+          item.cellData?.title ? '' : item.info.holidayName || (bdayLabel ? 'aniversario' : '')
+        );
         if (themeImg) {
           const img = document.createElement('img');
           img.className = 'theme-thumb theme-thumb-sm';
@@ -781,6 +811,36 @@
       content.appendChild(notesEl);
     }
 
+    if (cellData && Array.isArray(cellData.team) && cellData.team.length > 0) {
+      const teamWrap = document.createElement('div');
+      teamWrap.className = 'cell-team';
+      for (const t of cellData.team) {
+        const row = document.createElement('div');
+        row.className = 'cell-team-row';
+        row.innerHTML = `<span class="cell-team-role"></span>`;
+        row.querySelector('.cell-team-role').textContent = t.role ? `${t.role}: ` : '';
+        row.appendChild(document.createTextNode(t.person || ''));
+        teamWrap.appendChild(row);
+      }
+      content.appendChild(teamWrap);
+    }
+
+    const dayBirthdays = reminder.dayBirthdays || [];
+    if (dayBirthdays.length > 0) {
+      const bEl = document.createElement('div');
+      bEl.className = 'cell-birthday-line';
+      const bTxt = document.createElement('span');
+      bTxt.className = 'cell-birthday-text';
+      bTxt.textContent = `Aniversariante(s): ${dayBirthdays.map((b) => b.name).join(', ')}`;
+      bEl.appendChild(bTxt);
+      const bImg = document.createElement('img');
+      bImg.className = 'theme-thumb theme-thumb-sm';
+      bImg.src = '/images/themes/aniversario.svg';
+      bImg.alt = 'Aniversário';
+      bEl.appendChild(bImg);
+      content.appendChild(bEl);
+    }
+
     if (info.holidayName && !hasTitle) {
       const holEl = document.createElement('div');
       holEl.className = 'notepad-holiday-line';
@@ -827,6 +887,7 @@
         const data = await apiFetch('/api/me');
         state.user = data.user;
         state.passwordUpdatedAt = data.passwordUpdatedAt || null;
+        state.cloudDbConnected = Boolean(data.cloudDbConnected);
         if (data.serverToday) {
           state.today = data.serverToday;
           state.viewYear = data.serverToday.year;
@@ -971,10 +1032,55 @@
         versePinned: Boolean(data.versePinned),
         cells: data.cells || {},
       };
+      state.monthBirthdays = Array.isArray(data.birthdays) ? data.birthdays : [];
       renderCalendar();
     } catch (err) {
       showToast(err.message, 'error');
     }
+  }
+
+  function getBirthdaysOnDay(dayNum) {
+    if (dayNum === null || dayNum === undefined) return [];
+    return (state.monthBirthdays || []).filter((b) => Number(b.day) === Number(dayNum));
+  }
+
+  function createTeamElement(teamArr) {
+    if (!Array.isArray(teamArr) || teamArr.length === 0) return null;
+    const wrap = document.createElement('div');
+    wrap.className = 'cell-team';
+    for (const item of teamArr) {
+      const row = document.createElement('div');
+      row.className = 'cell-team-row';
+      if (item.role) {
+        const r = document.createElement('span');
+        r.className = 'cell-team-role';
+        r.textContent = `${item.role}: `;
+        row.appendChild(r);
+      }
+      row.appendChild(document.createTextNode(item.person || ''));
+      wrap.appendChild(row);
+    }
+    return wrap;
+  }
+
+  function createBirthdayElement(bdayList) {
+    if (!Array.isArray(bdayList) || bdayList.length === 0) return null;
+    const el = document.createElement('div');
+    el.className = 'cell-birthday-line';
+    const txt = document.createElement('span');
+    txt.className = 'cell-birthday-text';
+    txt.textContent =
+      bdayList.length === 1
+        ? `Aniv.: ${bdayList[0].name}`
+        : `Aniv. (${bdayList.length}): ${bdayList.map((b) => b.name.split(' ')[0]).join(', ')}`;
+    el.appendChild(txt);
+    const img = document.createElement('img');
+    img.className = 'theme-thumb theme-thumb-sm';
+    img.src = '/images/themes/aniversario.svg';
+    img.alt = 'Aniversário';
+    img.loading = 'lazy';
+    el.appendChild(img);
+    return el;
   }
 
   function setViewMode(mode) {
@@ -1002,8 +1108,9 @@
       const cellKey = `day-${day}`;
       const cellData = state.monthData.cells[cellKey] || null;
       const holidayName = holidays[`${month}-${day}`] || null;
+      const dayBdays = getBirthdaysOnDay(day);
       const hasAny = Boolean(
-        cellHasRealAppointment(cellData, holidayName) ||
+        cellHasRealAppointment(cellData, holidayName, dayBdays) ||
           (cellData && cellData.liturgicalColor)
       );
       if (!hasAny) continue;
@@ -1097,6 +1204,16 @@
         notesEl.className = 'cell-notes';
         notesEl.textContent = cellData.notes;
         mainCol.appendChild(notesEl);
+      }
+
+      if (cellData && Array.isArray(cellData.team) && cellData.team.length > 0) {
+        const teamEl = createTeamElement(cellData.team);
+        if (teamEl) mainCol.appendChild(teamEl);
+      }
+
+      if (dayBdays.length > 0) {
+        const bEl = createBirthdayElement(dayBdays);
+        if (bEl) mainCol.appendChild(bEl);
       }
 
       if (holidayName && !hasCustomTitle) {
@@ -1358,6 +1475,16 @@
         notesEl.textContent = cellData.notes;
         body.appendChild(notesEl);
       }
+      if (Array.isArray(cellData.team) && cellData.team.length > 0) {
+        const teamEl = createTeamElement(cellData.team);
+        if (teamEl) body.appendChild(teamEl);
+      }
+    }
+
+    const dayBdays = getBirthdaysOnDay(dayNum);
+    if (dayBdays.length > 0) {
+      const bEl = createBirthdayElement(dayBdays);
+      if (bEl) body.appendChild(bEl);
     }
 
     // Se houver feriado nacional e o usuário ainda não preencheu um título
@@ -1675,6 +1802,66 @@
     return list;
   }
 
+  function addTeamRow(role = '', person = '') {
+    const list = $('teamEditorList');
+    const row = document.createElement('div');
+    row.className = 'schedule-editor-row';
+
+    const roleInput = document.createElement('input');
+    roleInput.type = 'text';
+    roleInput.maxLength = 45;
+    roleInput.placeholder = 'Função (ex.: Pregação)';
+    roleInput.value = role || '';
+    roleInput.style.flex = '0.85';
+    roleInput.addEventListener('input', markCellDirty);
+
+    const personInput = document.createElement('input');
+    personInput.type = 'text';
+    personInput.maxLength = 80;
+    personInput.placeholder = 'Responsável (ex.: Pr. João)';
+    personInput.value = person || '';
+    personInput.style.flex = '1.15';
+    personInput.addEventListener('input', markCellDirty);
+
+    const rmBtn = document.createElement('button');
+    rmBtn.type = 'button';
+    rmBtn.className = 'schedule-remove-btn';
+    rmBtn.title = 'Remover função';
+    rmBtn.textContent = '✕';
+    rmBtn.addEventListener('click', () => {
+      row.remove();
+      markCellDirty();
+    });
+
+    row.append(roleInput, personInput, rmBtn);
+    list.appendChild(row);
+    return role ? personInput : roleInput;
+  }
+
+  function renderTeamEditor(items) {
+    const list = $('teamEditorList');
+    list.innerHTML = '';
+    if (Array.isArray(items) && items.length > 0) {
+      for (const item of items) {
+        addTeamRow(item.role || '', item.person || '');
+      }
+    }
+  }
+
+  function collectTeamEditor() {
+    const rows = $('teamEditorList').querySelectorAll('.schedule-editor-row');
+    const list = [];
+    rows.forEach((row) => {
+      const inputs = row.querySelectorAll('input[type="text"]');
+      const role = inputs[0]?.value?.trim() || '';
+      const person = inputs[1]?.value?.trim() || '';
+      if (role || person) {
+        list.push({ role, person });
+      }
+    });
+    return list;
+  }
+
   function setSelectedLit(val) {
     state.selectedLitColor = val || '';
     document.querySelectorAll('#litColorPicker .lit-opt').forEach((btn) => {
@@ -1755,8 +1942,10 @@
     $('cellTag').value = existing.tag || '';
     $('cellNotes').value = existing.notes || '';
     $('cellIsQuote').checked = Boolean(existing.isQuote);
+    $('cellTeamPublic').checked = Boolean(existing.teamPublic);
     $('cellCustomImageInput').value = '';
     renderScheduleEditor(existing.schedule || []);
+    renderTeamEditor(existing.team || []);
 
     setSelectedLit(existing.liturgicalColor || '');
     setSelectedCellColor(existing.cellColor || '');
@@ -1818,6 +2007,8 @@
           title: '',
           notes: '',
           schedule: [],
+          team: [],
+          teamPublic: false,
           liturgicalColor: '',
           cellColor: '',
           tag: '',
@@ -1829,6 +2020,8 @@
           title: $('cellTitle').value,
           notes: $('cellNotes').value,
           schedule: collectScheduleEditor(),
+          team: collectTeamEditor(),
+          teamPublic: $('cellTeamPublic').checked,
           liturgicalColor: state.selectedLitColor,
           cellColor: state.selectedCellColor,
           tag: $('cellTag').value,
@@ -2326,6 +2519,174 @@
   }
 
   // =========================
+  // ANIVERSARIANTES DA COMUNIDADE (REPETIÇÃO ANUAL)
+  // =========================
+  async function openBirthdaysModal() {
+    if (!canEdit()) return;
+    $('bdayMonth').value = String(state.viewMonth);
+    $('bdayFilterInput').value = '';
+    openModal('birthdaysModal');
+    const listEl = $('birthdaysList');
+    listEl.innerHTML = '<div class="empty-state">Carregando aniversariantes...</div>';
+    try {
+      const data = await apiFetch('/api/birthdays');
+      state.allBirthdays = Array.isArray(data.birthdays) ? data.birthdays : [];
+      renderBirthdaysList();
+    } catch (err) {
+      listEl.innerHTML = `<div class="empty-state">${err.message}</div>`;
+    }
+  }
+
+  function renderBirthdaysList() {
+    const listEl = $('birthdaysList');
+    const q = normalizeTextForMatch($('bdayFilterInput').value.trim());
+    const items = (state.allBirthdays || []).filter((b) => {
+      if (!q) return true;
+      const hay = normalizeTextForMatch(`${b.name} ${b.note || ''} ${MONTHS_CAP[b.month - 1] || ''}`);
+      return hay.includes(q);
+    });
+
+    if (!items.length) {
+      listEl.innerHTML = '<div class="empty-state">Nenhum aniversariante cadastrado.</div>';
+      return;
+    }
+
+    listEl.innerHTML = '';
+    for (const b of items) {
+      const row = document.createElement('div');
+      row.className = 'bday-row';
+
+      const left = document.createElement('div');
+      left.className = 'bday-row-left';
+
+      const pill = document.createElement('span');
+      pill.className = 'bday-date-pill';
+      pill.textContent = `${String(b.day).padStart(2, '0')}/${String(b.month).padStart(2, '0')}`;
+
+      const txtWrap = document.createElement('div');
+      const nm = document.createElement('div');
+      nm.className = 'bday-name';
+      nm.textContent = b.name;
+      txtWrap.appendChild(nm);
+      if (b.note) {
+        const nt = document.createElement('div');
+        nt.className = 'bday-note';
+        nt.textContent = b.note;
+        txtWrap.appendChild(nt);
+      }
+
+      left.append(pill, txtWrap);
+
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'btn btn-danger-outline btn-xs';
+      delBtn.textContent = 'Remover';
+      delBtn.addEventListener('click', async () => {
+        if (!window.confirm(`Remover "${b.name}" da lista de aniversariantes?`)) return;
+        try {
+          const res = await apiFetch(`/api/birthdays/${encodeURIComponent(b.id)}`, { method: 'DELETE' });
+          state.allBirthdays = res.birthdays || [];
+          renderBirthdaysList();
+          await loadMonth(state.viewYear, state.viewMonth);
+          checkTomorrowReminder({ autoPopup: false });
+          showToast('Aniversariante removido.', 'success');
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+      });
+
+      row.append(left, delBtn);
+      listEl.appendChild(row);
+    }
+  }
+
+  // =========================
+  // VISÃO ANUAL (12 MESES)
+  // =========================
+  async function openYearOverviewModal(year = state.viewYear) {
+    state.yearOverviewYear = Math.max(1900, Math.min(2200, Number(year) || state.today.year));
+    $('yearOverviewLabel').textContent = String(state.yearOverviewYear);
+    const grid = $('yearOverviewGrid');
+    grid.innerHTML = '<div class="empty-state">Carregando visão anual...</div>';
+    openModal('yearOverviewModal');
+
+    try {
+      const prefix = state.publicMode ? '/api/public/calendar/year' : '/api/calendar/year';
+      const data = await apiFetch(`${prefix}/${state.yearOverviewYear}`);
+      renderYearOverview(state.yearOverviewYear, data.months || {});
+    } catch (err) {
+      grid.innerHTML = `<div class="empty-state">${err.message}</div>`;
+    }
+  }
+
+  function renderYearOverview(year, monthsSummary) {
+    const grid = $('yearOverviewGrid');
+    grid.innerHTML = '';
+    const holidays = getBrazilianHolidays(year);
+    const wdShort = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
+
+    for (let m = 1; m <= 12; m++) {
+      const mInfo = monthsSummary[m] || { eventDays: [], birthdayDays: [] };
+      const eventSet = new Set(mInfo.eventDays || []);
+      const bdaySet = new Set(mInfo.birthdayDays || []);
+      const firstDow = new Date(year, m - 1, 1).getDay();
+      const daysInMonth = new Date(year, m, 0).getDate();
+
+      const card = document.createElement('div');
+      card.className = 'mini-month-card';
+      if (year === state.viewYear && m === state.viewMonth) {
+        card.classList.add('is-current-month');
+      }
+
+      const head = document.createElement('button');
+      head.type = 'button';
+      head.className = 'mini-month-head';
+      head.innerHTML = `<span>${MONTHS_PT[m - 1]}</span><span class="mini-month-count">${eventSet.size}</span>`;
+      head.addEventListener('click', async () => {
+        closeModal('yearOverviewModal', true);
+        await loadMonth(year, m);
+      });
+
+      const wdRow = document.createElement('div');
+      wdRow.className = 'mini-month-wd';
+      for (const ch of wdShort) {
+        const s = document.createElement('span');
+        s.textContent = ch;
+        wdRow.appendChild(s);
+      }
+
+      const daysGrid = document.createElement('div');
+      daysGrid.className = 'mini-month-days';
+
+      for (let i = 0; i < firstDow; i++) {
+        daysGrid.appendChild(document.createElement('span'));
+      }
+
+      for (let d = 1; d <= daysInMonth; d++) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'mini-day';
+        btn.textContent = String(d);
+        if (eventSet.has(d)) btn.classList.add('has-event');
+        if (holidays[`${m}-${d}`]) btn.classList.add('has-holiday');
+        if (bdaySet.has(d)) btn.classList.add('has-bday');
+        if (year === state.today.year && m === state.today.month && d === state.today.day) {
+          btn.classList.add('is-today');
+        }
+        btn.addEventListener('click', async () => {
+          closeModal('yearOverviewModal', true);
+          state.flashCellKey = `day-${d}`;
+          await loadMonth(year, m);
+        });
+        daysGrid.appendChild(btn);
+      }
+
+      card.append(head, wdRow, daysGrid);
+      grid.appendChild(card);
+    }
+  }
+
+  // =========================
   // SEGURANÇA DO ADMIN & BACKUP
   // =========================
   function switchTab(tabId) {
@@ -2354,6 +2715,18 @@
     $('passwordUpdatedMeta').textContent = state.passwordUpdatedAt
       ? `Última alteração de senha em ${formatDateTimePt(state.passwordUpdatedAt)}`
       : '';
+
+    const cloudBox = $('cloudDbStatusBox');
+    if (cloudBox) {
+      cloudBox.classList.toggle('connected', Boolean(state.cloudDbConnected));
+      $('cloudStatusTitle').textContent = state.cloudDbConnected
+        ? 'Banco na Nuvem Conectado (Sincronização em Tempo Real)'
+        : 'Banco na Nuvem Pronto para Conectar (Upstash Redis / Vercel KV)';
+      $('cloudStatusDesc').textContent = state.cloudDbConnected
+        ? 'Todos os meses, aniversariantes, escalas e a senha do administrador estão sincronizados automaticamente entre computador, celular e link da comunidade.'
+        : 'O código já está 100% pronto! Para sincronizar automaticamente entre vários aparelhos na Vercel: abra o projeto calendario-web na Vercel → aba Storage → Create Database → Upstash Redis (gratuito) e clique em Connect Project.';
+    }
+
     switchTab('tabPassword');
     openModal('securityModal');
   }
@@ -2514,6 +2887,63 @@
       showTomorrowNotepad('week');
     });
 
+    // Visão Anual (12 meses)
+    $('openYearViewBtn').addEventListener('click', () => openYearOverviewModal(state.viewYear));
+    $('yearOverviewPrevBtn').addEventListener('click', () => openYearOverviewModal(state.yearOverviewYear - 1));
+    $('yearOverviewNextBtn').addEventListener('click', () => openYearOverviewModal(state.yearOverviewYear + 1));
+
+    // Aniversariantes da Comunidade
+    $('openBirthdaysBtn').addEventListener('click', () => openBirthdaysModal());
+    $('bdayFilterInput').addEventListener('input', () => renderBirthdaysList());
+    $('birthdayForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try {
+        const res = await apiFetch('/api/birthdays', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: $('bdayName').value,
+            day: Number($('bdayDay').value),
+            month: Number($('bdayMonth').value),
+            note: $('bdayNote').value,
+          }),
+        });
+        state.allBirthdays = res.birthdays || [];
+        $('bdayName').value = '';
+        $('bdayDay').value = '';
+        $('bdayNote').value = '';
+        renderBirthdaysList();
+        await loadMonth(state.viewYear, state.viewMonth);
+        checkTomorrowReminder({ autoPopup: false });
+        showToast('Aniversariante cadastrado com repetição anual!', 'success');
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+
+    // Instalar como Aplicativo (PWA)
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      state.deferredInstallPrompt = e;
+    });
+
+    $('installPwaBtn').addEventListener('click', async () => {
+      if (state.deferredInstallPrompt) {
+        state.deferredInstallPrompt.prompt();
+        const choice = await state.deferredInstallPrompt.userChoice.catch(() => null);
+        state.deferredInstallPrompt = null;
+        if (choice && choice.outcome === 'accepted') {
+          showToast('Aplicativo instalado na tela inicial!', 'success');
+        }
+        return;
+      }
+      const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
+      if (isIos) {
+        showToast('No iPhone/Safari: toque em Compartilhar (⬆) e depois em "Adicionar à Tela de Início".', 'info');
+      } else {
+        showToast('No navegador do celular, toque no menu (⋮) e escolha "Instalar aplicativo" ou "Adicionar à tela inicial".', 'info');
+      }
+    });
+
     $('notepadTabTomorrow').addEventListener('click', () => showTomorrowNotepad('tomorrow'));
     $('notepadTabWeek').addEventListener('click', () => showTomorrowNotepad('week'));
 
@@ -2641,6 +3071,22 @@
       markCellDirty();
       input.focus();
     });
+
+    $('addTeamBtn').addEventListener('click', () => {
+      const input = addTeamRow('', '');
+      markCellDirty();
+      input.focus();
+    });
+
+    document.querySelectorAll('.qrole').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const input = addTeamRow(btn.dataset.role, '');
+        markCellDirty();
+        input.focus();
+      });
+    });
+
+    $('cellTeamPublic').addEventListener('change', markCellDirty);
 
     $('copyToDayBtn').addEventListener('click', () => {
       const destKey = $('transferDaySelect').value;
@@ -2913,6 +3359,12 @@
     if (document.fonts && document.fonts.ready) {
       document.fonts.ready.then(() => fitAllCellTexts());
     }
+  }
+
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    });
   }
 
   bindEvents();
