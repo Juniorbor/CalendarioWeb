@@ -208,23 +208,26 @@
       </div>
 
       <div class="topbar-right">
-        <button type="button" id="tomorrowBtn" class="btn btn-outline btn-reminder" title="Ver lembrete de compromisso de amanhã">
+        <button type="button" id="tomorrowBtn" class="btn btn-outline btn-reminder" title="Ver lembrete de amanhã e próximos 7 dias">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
             <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
           </svg>
-          <span>Amanhã</span>
+          <span>Lembretes</span>
           <span id="tomorrowDot" class="reminder-dot hidden" aria-hidden="true"></span>
         </button>
-        <button type="button" id="openSearchBtn" class="btn btn-outline" title="Buscar em todos os meses">Buscar</button>
-        <button type="button" id="printBtn" class="btn btn-outline" title="Imprimir tabela">Imprimir</button>
-        <button type="button" id="openSecurityBtn" class="btn btn-outline" title="Alterar senha, sessões e backup">Segurança</button>
-        <div class="user-pill" id="userBadge"></div>
-        <button type="button" id="logoutBtn" class="btn btn-danger-outline" title="Sair do sistema">Sair</button>
+        <button type="button" id="exportPngBtn" class="btn btn-outline" title="Baixar imagem pronta para enviar no WhatsApp">WhatsApp</button>
+        <button type="button" id="shareLinkBtn" class="btn btn-outline admin-only" title="Copiar link público somente leitura para a comunidade">Link Comunidade</button>
+        <button type="button" id="openSearchBtn" class="btn btn-outline admin-only" title="Buscar em todos os meses">Buscar</button>
+        <button type="button" id="printBtn" class="btn btn-outline" title="Imprimir tabela com cabeçalho oficial">Imprimir</button>
+        <button type="button" id="openSecurityBtn" class="btn btn-outline admin-only" title="Alterar senha, sessões e backup">Segurança</button>
+        <div class="user-pill admin-only" id="userBadge"></div>
+        <button type="button" id="logoutBtn" class="btn btn-danger-outline admin-only" title="Sair do sistema">Sair</button>
+        <button type="button" id="enterAdminBtn" class="btn btn-primary public-only hidden" title="Acessar área administrativa">Área do Admin</button>
       </div>
     </header>
 
-    <!-- Legenda Discreta e Informativa -->
+    <!-- Barra de Legenda, Ações Rápidas e Alternância Grade/Lista -->
     <div class="legend-bar no-print">
       <div class="legend-items">
         <span class="legend-label">Cores litúrgicas:</span>
@@ -235,15 +238,31 @@
         <span class="lit-pill lit-rosa">Rosa</span>
         <span class="lit-pill lit-dourado">Dourado</span>
         <span class="lit-pill lit-preto">Preto</span>
+        <button type="button" id="autoLiturgicalBtn" class="btn btn-outline btn-xs admin-only" title="Preencher automaticamente as cores litúrgicas IECLB nos domingos deste mês">Aplicar cores do mês</button>
       </div>
-      <div class="legend-tip" id="editModeTip">
-        Clique em qualquer quadrado ou no lema superior para editar
+      <div class="legend-right">
+        <div class="view-switch" role="group" aria-label="Modo de visualização">
+          <button type="button" id="viewGridBtn" class="view-switch-btn active">Grade</button>
+          <button type="button" id="viewListBtn" class="view-switch-btn">Lista</button>
+        </div>
+        <div class="legend-tip" id="editModeTip">
+          Clique para editar ou arraste um dia para mover
+        </div>
       </div>
     </div>
 
     <!-- Área Ampliada da Tabela do Calendário -->
     <main class="calendar-stage">
       <section class="calendar-frame" aria-label="Tabela do Calendário Mensal">
+        <!-- Cabeçalho Oficial da Paróquia (exibido na impressão / mural) -->
+        <div class="print-parish-header">
+          <img src="/images/logo-paroquia.png" alt="Logo Paróquia Martim Lutero" class="print-parish-logo" />
+          <div class="print-parish-text">
+            <div class="print-parish-name">Paróquia Evangélica de Confissão Luterana — Martim Lutero</div>
+            <div class="print-parish-sub">IECLB • Cacoal – RO • Programação Mensal</div>
+          </div>
+        </div>
+
         <!-- Cabeçalho Triplo (Mês | Versículo/Lema | Ano) -->
         <div class="cal-top-header">
           <div class="cal-month-box" id="calMonthLabel">JANEIRO</div>
@@ -255,7 +274,7 @@
         </div>
 
         <!-- Cabeçalho dos 7 Dias da Semana (Todos em Azul) -->
-        <div class="cal-weekdays" role="row">
+        <div class="cal-weekdays" id="calWeekdays" role="row">
           <div class="cal-weekday wd-sun">DOMINGO</div>
           <div class="cal-weekday wd-mon">SEGUNDA</div>
           <div class="cal-weekday wd-tue">TERÇA</div>
@@ -267,6 +286,9 @@
 
         <!-- Grade Ampla dos Quadrados -->
         <div id="calGrid" class="cal-grid" role="grid"></div>
+
+        <!-- Modo Lista / Agenda (ideal para celular e consulta rápida) -->
+        <div id="agendaListView" class="agenda-list hidden"></div>
       </section>
     </main>
   </div>
@@ -304,8 +326,16 @@
         </div>
 
         <div class="field">
-          <label for="cellNotes">Informações / Detalhes / Horários / Reflexão</label>
-          <textarea id="cellNotes" rows="5" maxlength="1500" placeholder="Adicione horários, nomes, versículos ou observações para este quadrado..."></textarea>
+          <div class="field-header-inline">
+            <label>Compromissos com Horário (ordenados automaticamente)</label>
+            <button type="button" id="addScheduleBtn" class="btn btn-outline btn-xs">+ Adicionar horário</button>
+          </div>
+          <div id="scheduleEditorList" class="schedule-editor-list"></div>
+        </div>
+
+        <div class="field">
+          <label for="cellNotes">Observações / Detalhes / Reflexão</label>
+          <textarea id="cellNotes" rows="3" maxlength="1500" placeholder="Adicione observações adicionais, nomes ou reflexões para este quadrado..."></textarea>
         </div>
 
         <div class="field">
@@ -376,6 +406,27 @@
           <input type="checkbox" id="cellIsQuote" />
           <span>Exibir como citação / reflexão centralizada</span>
         </label>
+
+        <!-- Repetição Semanal & Copiar/Mover Dia (somente em quadrados de dias reais) -->
+        <div id="dayProductivityBox" class="productivity-box">
+          <div class="form-row-2">
+            <div class="field">
+              <label for="cellRepeatSelect">Repetição automática neste mês</label>
+              <select id="cellRepeatSelect">
+                <option value="none">Somente neste dia</option>
+                <option value="weekday" id="repeatWeekdayOption">Repetir em todos os dias iguais deste mês</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="transferDaySelect">Copiar ou mover para outro dia</label>
+              <div class="transfer-row">
+                <select id="transferDaySelect"></select>
+                <button type="button" id="copyToDayBtn" class="btn btn-outline btn-xs">Copiar</button>
+                <button type="button" id="moveToDayBtn" class="btn btn-outline btn-xs">Mover</button>
+              </div>
+            </div>
+          </div>
+        </div>
 
         <div id="cellMetaInfo" class="meta-info"></div>
 
@@ -583,6 +634,11 @@
         <button type="button" class="notepad-close" data-close="tomorrowAlertModal" aria-label="Fechar lembrete">✕</button>
       </div>
 
+      <div class="notepad-tabs" role="tablist">
+        <button type="button" id="notepadTabTomorrow" class="notepad-tab active" role="tab">Amanhã</button>
+        <button type="button" id="notepadTabWeek" class="notepad-tab" role="tab">Próximos 7 dias</button>
+      </div>
+
       <div class="notepad-date-bar" id="notepadDateLabel"></div>
 
       <div class="notepad-paper">
@@ -597,8 +653,11 @@
     </div>
   </div>
 
-  <!-- TOAST -->
-  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+  <!-- TOAST COM AÇÃO DE DESFAZER -->
+  <div id="toast" class="toast hidden" role="status" aria-live="polite">
+    <span id="toastText"></span>
+    <button type="button" id="toastActionBtn" class="toast-action-btn hidden">Desfazer</button>
+  </div>
 
   <script src="/app.js"></script>
 </body>

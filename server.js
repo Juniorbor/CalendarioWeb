@@ -19,7 +19,10 @@ const MIME_TYPES = {
 };
 
 function serveStatic(req, res, pathname) {
-  const relPath = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
+  const relPath =
+    pathname === '/' || pathname === '/comunidade'
+      ? 'index.html'
+      : pathname.replace(/^\/+/, '');
   const safePath = path.normalize(relPath).replace(/^(\.\.(\/|\\|$))+/, '');
   const fullPath = path.join(PUBLIC_DIR, safePath);
 

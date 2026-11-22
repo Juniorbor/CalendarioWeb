@@ -490,6 +490,65 @@ function isValidCellKey(key) {
   return /^(day-([1-9]|[12][0-9]|3[01])|pad-start-[0-5]|pad-end-[0-5])$/.test(key);
 }
 
+function sanitizeSchedule(raw) {
+  if (!Array.isArray(raw)) return [];
+  const list = [];
+  for (const item of raw.slice(0, 12)) {
+    if (!item || typeof item !== 'object') continue;
+    const timeRaw = sanitizeText(item.time || '', 10);
+    const time = /^([01]\d|2[0-3]):[0-5]\d$/.test(timeRaw) ? timeRaw : '';
+    const text = sanitizeText(item.text || '', 140);
+    if (!time && !text) continue;
+    list.push({ time, text });
+  }
+  list.sort((a, b) => {
+    if (a.time && b.time) return a.time.localeCompare(b.time);
+    if (a.time) return -1;
+    if (b.time) return 1;
+    return 0;
+  });
+  return list;
+}
+
+function sanitizeCellPayload(body, username) {
+  if (!body || typeof body !== 'object') return null;
+  let customImage = '';
+  if (
+    typeof body.customImage === 'string' &&
+    /^data:image\/(png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(body.customImage) &&
+    body.customImage.length <= 220000
+  ) {
+    customImage = body.customImage;
+  }
+
+  const schedule = sanitizeSchedule(body.schedule);
+  const cleaned = {
+    title: sanitizeText(body.title, 140),
+    notes: sanitizeText(body.notes, 1500),
+    schedule,
+    liturgicalColor: sanitizeText(body.liturgicalColor, 30).toLowerCase(),
+    cellColor: sanitizeText(body.cellColor, 30).toLowerCase(),
+    tag: sanitizeText(body.tag, 40),
+    themeImage: sanitizeText(body.themeImage, 40).toLowerCase().replace(/[^a-z0-9_-]/g, ''),
+    customImage,
+    isQuote: Boolean(body.isQuote),
+    updatedBy: username,
+    updatedAt: new Date().toISOString(),
+  };
+
+  const isEmpty =
+    !cleaned.title &&
+    !cleaned.notes &&
+    cleaned.schedule.length === 0 &&
+    !cleaned.liturgicalColor &&
+    !cleaned.cellColor &&
+    !cleaned.tag &&
+    !cleaned.themeImage &&
+    !cleaned.customImage;
+
+  return isEmpty ? null : cleaned;
+}
+
 function cookieFlags(maxAgeSec) {
   const secure = IS_SERVERLESS ? '; Secure' : '';
   return `HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAgeSec}${secure}`;
@@ -510,6 +569,32 @@ module.exports = async function handler(req, res) {
       applySecurityHeaders(res);
       res.statusCode = 200;
       return res.end();
+    }
+
+    // ROTAS PÚBLICAS SOMENTE LEITURA (LINK DA COMUNIDADE)
+    if (pathname === '/api/public/meta' && method === 'GET') {
+      const now = new Date();
+      return sendJson(res, 200, {
+        publicMode: true,
+        serverToday: {
+          year: now.getFullYear(),
+          month: now.getMonth() + 1,
+          day: now.getDate(),
+        },
+      });
+    }
+
+    const pubCalMatch = pathname.match(/^\/api\/public\/calendar\/(\d{4})\/(\d{1,2})$/);
+    if (pubCalMatch && method === 'GET') {
+      const monthKey = isValidMonthKey(pubCalMatch[1], pubCalMatch[2]);
+      if (!monthKey) return sendJson(res, 400, { error: 'Ano ou mês inválido.' });
+      const monthData = db.months[monthKey] || { verse: '', versePinned: false, cells: {} };
+      return sendJson(res, 200, {
+        monthKey,
+        verse: monthData.verse || '',
+        versePinned: Boolean(monthData.versePinned),
+        cells: monthData.cells || {},
+      });
     }
 
     // GET /api/auth/status (informa se já existe senha criada ou se exige configuração inicial)
@@ -788,14 +873,17 @@ module.exports = async function handler(req, res) {
         }
         if (mData.cells) {
           for (const [cellKey, cell] of Object.entries(mData.cells)) {
-            const hay = `${cell.title || ''} ${cell.notes || ''} ${cell.liturgicalColor || ''} ${cell.tag || ''}`.toLowerCase();
+            const schedText = Array.isArray(cell.schedule)
+              ? cell.schedule.map((s) => `${s.time || ''} ${s.text || ''}`).join(' ')
+              : '';
+            const hay = `${cell.title || ''} ${cell.notes || ''} ${schedText} ${cell.liturgicalColor || ''} ${cell.tag || ''}`.toLowerCase();
             if (hay.includes(q)) {
               results.push({
                 year,
                 month,
                 cellKey,
                 title: cell.title || cell.tag || cellKey,
-                snippet: cell.notes || cell.liturgicalColor || '',
+                snippet: schedText.trim() || cell.notes || cell.liturgicalColor || '',
               });
             }
           }
@@ -850,41 +938,11 @@ module.exports = async function handler(req, res) {
       }
       const body = await readJsonBody(req);
       if (!db.months[monthKey]) {
-        db.months[monthKey] = { verse: '', cells: {} };
+        db.months[monthKey] = { verse: '', versePinned: false, cells: {} };
       }
 
-      let customImage = '';
-      if (
-        typeof body.customImage === 'string' &&
-        /^data:image\/(png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(body.customImage) &&
-        body.customImage.length <= 220000
-      ) {
-        customImage = body.customImage;
-      }
-
-      const cleaned = {
-        title: sanitizeText(body.title, 140),
-        notes: sanitizeText(body.notes, 1500),
-        liturgicalColor: sanitizeText(body.liturgicalColor, 30).toLowerCase(),
-        cellColor: sanitizeText(body.cellColor, 30).toLowerCase(),
-        tag: sanitizeText(body.tag, 40),
-        themeImage: sanitizeText(body.themeImage, 40).toLowerCase().replace(/[^a-z0-9_-]/g, ''),
-        customImage,
-        isQuote: Boolean(body.isQuote),
-        updatedBy: adminUser.username,
-        updatedAt: new Date().toISOString(),
-      };
-
-      const isEmpty =
-        !cleaned.title &&
-        !cleaned.notes &&
-        !cleaned.liturgicalColor &&
-        !cleaned.cellColor &&
-        !cleaned.tag &&
-        !cleaned.themeImage &&
-        !cleaned.customImage;
-
-      if (isEmpty) {
+      const cleaned = sanitizeCellPayload(body, adminUser.username);
+      if (!cleaned) {
         delete db.months[monthKey].cells[cellKey];
       } else {
         db.months[monthKey].cells[cellKey] = cleaned;
@@ -896,6 +954,39 @@ module.exports = async function handler(req, res) {
         ok: true,
         cellKey,
         cell: db.months[monthKey].cells[cellKey] || null,
+        updatedAt: db.updatedAt,
+      });
+    }
+
+    // POST /api/calendar/:year/:month/batch-cells (cores litúrgicas auto, repetição, mover/copiar, desfazer)
+    const batchMatch = pathname.match(/^\/api\/calendar\/(\d{4})\/(\d{1,2})\/batch-cells$/);
+    if (batchMatch && method === 'POST') {
+      const monthKey = isValidMonthKey(batchMatch[1], batchMatch[2]);
+      if (!monthKey) return sendJson(res, 400, { error: 'Ano ou mês inválido.' });
+      const body = await readJsonBody(req);
+      if (!body || typeof body.updates !== 'object' || Array.isArray(body.updates)) {
+        return sendJson(res, 400, { error: 'Payload de atualização em lote inválido.' });
+      }
+      if (!db.months[monthKey]) {
+        db.months[monthKey] = { verse: '', versePinned: false, cells: {} };
+      }
+
+      for (const [cellKey, cellBody] of Object.entries(body.updates)) {
+        if (!isValidCellKey(cellKey)) continue;
+        const cleaned = sanitizeCellPayload(cellBody, adminUser.username);
+        if (!cleaned) {
+          delete db.months[monthKey].cells[cellKey];
+        } else {
+          db.months[monthKey].cells[cellKey] = cleaned;
+        }
+      }
+
+      db.updatedAt = Date.now();
+      saveDb(db);
+      return sendJson(res, 200, {
+        ok: true,
+        monthKey,
+        cells: db.months[monthKey].cells,
         updatedAt: db.updatedAt,
       });
     }

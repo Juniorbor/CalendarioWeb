@@ -1882,6 +1882,338 @@ body {
 }
 
 /* =========================
+   OPÇÕES 2, 3 E 4 — PRODUTIVIDADE, COMUNIDADE, LISTA & IMPRESSÃO
+   ========================= */
+.legend-right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.view-switch {
+  display: inline-flex;
+  background: #e2e8f0;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  gap: 2px;
+}
+
+.view-switch-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
+  padding: 4px 12px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background-color 0.14s ease, color 0.14s ease;
+}
+
+.view-switch-btn.active {
+  background: #ffffff;
+  color: var(--blue-primary);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.1);
+}
+
+/* Cabeçalho oficial na impressão (oculto na tela) */
+.print-parish-header {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 8px 14px;
+  background: #ffffff;
+  border-bottom: 1px solid var(--border-grid);
+}
+
+.print-parish-logo {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+}
+
+.print-parish-name {
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--blue-navy);
+}
+
+.print-parish-sub {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* Horários estruturados dentro dos quadrados (escala automática com --fit-scale) */
+.cell-schedule {
+  display: flex;
+  flex-direction: column;
+  gap: calc(3px * var(--fit-scale, 1));
+}
+
+.cell-sched-row {
+  display: flex;
+  align-items: baseline;
+  gap: calc(5px * var(--fit-scale, 1));
+  font-size: calc(0.86rem * var(--fit-scale, 1));
+  line-height: 1.3;
+  color: var(--text-main);
+}
+
+.cell-sched-time {
+  flex-shrink: 0;
+  font-size: calc(0.78rem * var(--fit-scale, 1));
+  font-weight: 500;
+  color: #1e40af;
+  background: rgba(219, 234, 254, 0.75);
+  padding: calc(1px * var(--fit-scale, 1)) calc(5px * var(--fit-scale, 1));
+  border-radius: 4px;
+}
+
+.cell-sched-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+/* Arrastar e soltar (Drag & Drop) */
+.cal-cell.is-dragging {
+  opacity: 0.45;
+}
+
+.cal-cell.drop-target {
+  box-shadow: inset 0 0 0 2.5px #1d4ed8 !important;
+  background: #dbeafe !important;
+}
+
+/* Editor de horários, repetição e copiar/mover no modal */
+.field-header-inline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.schedule-editor-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.schedule-editor-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.schedule-editor-row input[type="time"] {
+  width: 112px;
+  flex-shrink: 0;
+  padding: 7px 8px;
+}
+
+.schedule-editor-row input[type="text"] {
+  flex: 1;
+  padding: 7px 10px;
+}
+
+.schedule-remove-btn {
+  flex-shrink: 0;
+  width: 30px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+  border: 1px solid #fecaca;
+  background: #fff1f2;
+  color: #b91c1c;
+  cursor: pointer;
+}
+
+.schedule-remove-btn:hover {
+  background: #fee2e2;
+}
+
+.productivity-box {
+  background: var(--surface-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+}
+
+.transfer-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.transfer-row select {
+  flex: 1;
+  padding: 7px 8px;
+  font-size: 0.88rem;
+}
+
+/* Modo Lista / Agenda (perfeito para celular) */
+.agenda-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  background: var(--surface-muted);
+}
+
+.agenda-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 12px 16px;
+  background: #ffffff;
+  border: 1px solid var(--border-grid);
+  border-left: 4px solid var(--blue-primary);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: border-color 0.14s ease, background-color 0.14s ease;
+}
+
+.agenda-card:hover {
+  background: #f8fbff;
+  border-color: var(--blue-primary);
+}
+
+.agenda-card.is-today {
+  background: #eff6ff;
+  border-color: var(--blue-primary);
+}
+
+.agenda-card.readonly {
+  cursor: default;
+}
+
+.agenda-date-col {
+  width: 72px;
+  flex-shrink: 0;
+  text-align: center;
+  padding: 6px 4px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+  border: 1px solid var(--border-subtle);
+}
+
+.agenda-day-num {
+  font-size: 1.35rem;
+  font-weight: 500;
+  color: var(--blue-navy);
+  line-height: 1.1;
+}
+
+.agenda-weekday {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  margin-top: 2px;
+}
+
+.agenda-main-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.agenda-empty {
+  text-align: center;
+  padding: 28px 16px;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+}
+
+/* Abas da Folha de Bloco de Notas (Amanhã | Próximos 7 dias) */
+.notepad-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  background: #f6e7be;
+  border-bottom: 1px solid #e6cb86;
+}
+
+.notepad-tab {
+  border: none;
+  background: transparent;
+  padding: 7px 10px;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: #78350f;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+
+.notepad-tab.active {
+  background: #fef3c7;
+  color: #92400e;
+  border-bottom-color: #b45309;
+}
+
+.notepad-week-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.notepad-week-item {
+  width: 100%;
+  text-align: left;
+  border: 1px solid #ecd59a;
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-family: inherit;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.notepad-week-item:hover {
+  background: #ffffff;
+  border-color: #d97706;
+}
+
+.notepad-week-date {
+  font-size: 0.76rem;
+  font-weight: 500;
+  color: #92400e;
+}
+
+.notepad-week-title {
+  font-size: 0.9rem;
+  color: #1e293b;
+}
+
+/* Toast com botão Desfazer */
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.toast-action-btn {
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 0.84rem;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.toast-action-btn:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+/* =========================
    RESPONSIVIDADE
    ========================= */
 @media (max-width: 1024px) {
@@ -1891,6 +2223,9 @@ body {
   }
   .calendar-frame {
     min-width: 960px;
+  }
+  .calendar-frame.agenda-mode {
+    min-width: 0;
   }
   .form-row-2,
   .backup-cards {
@@ -1924,6 +2259,10 @@ body {
     display: none !important;
   }
 
+  .print-parish-header {
+    display: flex !important;
+  }
+
   .calendar-stage {
     padding: 0 !important;
   }
@@ -1932,16 +2271,17 @@ body {
     box-shadow: none !important;
     width: 100% !important;
     border-radius: 0 !important;
+    min-width: 0 !important;
   }
 
   .cal-grid {
-    grid-auto-rows: 115px !important;
+    grid-auto-rows: 104px !important;
   }
 
   .cal-cell {
-    height: 115px !important;
-    min-height: 115px !important;
-    max-height: 115px !important;
+    height: 104px !important;
+    min-height: 104px !important;
+    max-height: 104px !important;
     break-inside: avoid;
   }
 }
