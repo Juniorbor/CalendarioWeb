@@ -1356,7 +1356,8 @@ body {
   transition: transform 0.12s ease, box-shadow 0.12s ease;
 }
 
-.rich-color-dot:hover {
+.rich-color-dot:hover,
+.rich-color-dot.active {
   transform: scale(1.16);
   box-shadow: 0 0 0 2px var(--blue-primary);
 }

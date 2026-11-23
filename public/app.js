@@ -284,60 +284,46 @@
         if (targetParent.childNodes.length > 0 && targetParent.lastChild.nodeName !== 'BR') {
           targetParent.appendChild(document.createElement('br'));
         }
-        node.childNodes.forEach((child) => walk(child, targetParent));
-        return;
       }
 
-      if (tag === 'b' || tag === 'strong' || tag === 'i' || tag === 'em' || tag === 'u') {
-        const mapped = tag === 'strong' ? 'b' : tag === 'em' ? 'i' : tag;
-        const el = document.createElement(mapped);
-        node.childNodes.forEach((child) => walk(child, el));
-        if (el.childNodes.length > 0) targetParent.appendChild(el);
-        return;
+      const safeColor = sanitizeSafeColorClient(
+        node.style?.color || node.getAttribute('color') || ''
+      );
+      const fw = (node.style?.fontWeight || '').toLowerCase();
+      const isBold =
+        tag === 'b' || tag === 'strong' || fw === 'bold' || fw === 'bolder' || Number(fw) >= 600;
+      const isItalic =
+        tag === 'i' || tag === 'em' || (node.style?.fontStyle || '').toLowerCase() === 'italic';
+      const isUnderline =
+        tag === 'u' ||
+        (node.style?.textDecoration || '').includes('underline') ||
+        (node.style?.textDecorationLine || '').includes('underline');
+
+      let outer = null;
+      let inner = targetParent;
+
+      const wrapWith = (el) => {
+        if (!outer) {
+          outer = el;
+        } else {
+          inner.appendChild(el);
+        }
+        inner = el;
+      };
+
+      if (safeColor) {
+        const sp = document.createElement('span');
+        sp.style.color = safeColor;
+        wrapWith(sp);
       }
+      if (isBold) wrapWith(document.createElement('b'));
+      if (isItalic) wrapWith(document.createElement('i'));
+      if (isUnderline) wrapWith(document.createElement('u'));
 
-      if (tag === 'span' || tag === 'font') {
-        const safeColor = sanitizeSafeColorClient(
-          node.style?.color || node.getAttribute('color') || ''
-        );
-        const isBold =
-          node.style?.fontWeight === 'bold' || Number(node.style?.fontWeight) >= 600;
-        const isItalic = node.style?.fontStyle === 'italic';
-        const isUnderline =
-          (node.style?.textDecoration || '').includes('underline') ||
-          (node.style?.textDecorationLine || '').includes('underline');
-
-        let container = targetParent;
-        if (safeColor) {
-          const sp = document.createElement('span');
-          sp.style.color = safeColor;
-          container = sp;
-        }
-        let inner = container;
-        if (isBold) {
-          const b = document.createElement('b');
-          inner.appendChild(b);
-          inner = b;
-        }
-        if (isItalic) {
-          const i = document.createElement('i');
-          inner.appendChild(i);
-          inner = i;
-        }
-        if (isUnderline) {
-          const u = document.createElement('u');
-          inner.appendChild(u);
-          inner = u;
-        }
-
-        node.childNodes.forEach((child) => walk(child, inner));
-        if (container !== targetParent && container.childNodes.length > 0) {
-          targetParent.appendChild(container);
-        }
-        return;
+      node.childNodes.forEach((child) => walk(child, inner));
+      if (outer && outer.childNodes.length > 0) {
+        targetParent.appendChild(outer);
       }
-
-      node.childNodes.forEach((child) => walk(child, targetParent));
     }
 
     root.childNodes.forEach((child) => walk(child, frag));
@@ -421,6 +407,21 @@
     }
   }
 
+  let activeRichColor = '';
+
+  function normalizeColorToRgb(colorStr) {
+    if (!colorStr) return '';
+    const c = colorStr.trim().toLowerCase();
+    if (/^rgb\(/.test(c)) return c.replace(/\s+/g, '');
+    if (/^#[0-9a-f]{6}$/.test(c)) {
+      const r = parseInt(c.slice(1, 3), 16);
+      const g = parseInt(c.slice(3, 5), 16);
+      const b = parseInt(c.slice(5, 7), 16);
+      return `rgb(${r},${g},${b})`;
+    }
+    return c;
+  }
+
   function updateRichToolbarState() {
     const editor = $('cellNotes');
     const sel = window.getSelection();
@@ -439,15 +440,40 @@
       }
       btn.classList.toggle('active', active);
     });
+
+    let curColor = '';
+    if (inside) {
+      try {
+        curColor = normalizeColorToRgb(document.queryCommandValue('foreColor'));
+      } catch {}
+    }
+    document.querySelectorAll('.rich-color-dot[data-color]').forEach((dot) => {
+      const dotRgb = normalizeColorToRgb(dot.dataset.color);
+      dot.classList.toggle('active', Boolean(curColor && dotRgb === curColor));
+    });
   }
 
   function applyRichFormatCmd(cmd) {
     const editor = $('cellNotes');
     if (!editor) return;
     editor.focus();
+    const sel = window.getSelection();
+    const isCollapsed = Boolean(!sel || sel.isCollapsed);
+    let colorBefore = '';
+    if (isCollapsed) {
+      try {
+        colorBefore = sanitizeSafeColorClient(document.queryCommandValue('foreColor')) || activeRichColor;
+      } catch {
+        colorBefore = activeRichColor;
+      }
+    }
     try {
-      document.execCommand('styleWithCSS', false, false);
+      document.execCommand('styleWithCSS', false, true);
       document.execCommand(cmd, false, null);
+      // Garante que em cursor vazio a cor escolhida antes de clicar em Negrito/Itálico/Sublinhado não seja perdida
+      if (isCollapsed && colorBefore) {
+        document.execCommand('foreColor', false, colorBefore);
+      }
     } catch {}
     saveRichSelection();
     updateRichToolbarState();
@@ -458,6 +484,7 @@
     const editor = $('cellNotes');
     const safe = sanitizeSafeColorClient(hexColor);
     if (!editor || !safe) return;
+    activeRichColor = safe;
     editor.focus();
     try {
       document.execCommand('styleWithCSS', false, true);
@@ -2203,6 +2230,7 @@
     $('cellTag').value = existing.tag || '';
     setRichEditorContent($('cellNotes'), existing);
     savedRichRange = null;
+    activeRichColor = '';
     updateRichToolbarState();
     $('cellIsQuote').checked = Boolean(existing.isQuote);
     $('cellTeamPublic').checked = Boolean(existing.teamPublic);
@@ -4673,6 +4701,7 @@ ${clone.outerHTML}
         try {
           document.execCommand('removeFormat', false, null);
         } catch {}
+        activeRichColor = '';
         updateRichToolbarState();
         markCellDirty();
       });

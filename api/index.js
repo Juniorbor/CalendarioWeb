@@ -605,11 +605,8 @@ function sanitizeRichHtml(raw, maxLen = 4500) {
     const tag = tagName.toLowerCase();
     const isClose = full.startsWith('</');
     if (tag === 'br') return isClose ? '' : '<br>';
-    if (tag === 'b' || tag === 'strong' || tag === 'i' || tag === 'em' || tag === 'u' || tag === 'div' || tag === 'p') {
-      return isClose ? `</${tag}>` : `<${tag}>`;
-    }
-    if (tag === 'font' || tag === 'span') {
-      if (isClose) return '</span>';
+
+    const extractColor = () => {
       let color = '';
       const styleMatch = attrs.match(/style\s*=\s*["']([^"']*)["']/i);
       if (styleMatch) {
@@ -620,6 +617,17 @@ function sanitizeRichHtml(raw, maxLen = 4500) {
         const attrMatch = attrs.match(/\bcolor\s*=\s*["']?([^"'\s>]+)["']?/i);
         if (attrMatch) color = sanitizeSafeColor(attrMatch[1]);
       }
+      return color;
+    };
+
+    if (tag === 'b' || tag === 'strong' || tag === 'i' || tag === 'em' || tag === 'u' || tag === 'div' || tag === 'p') {
+      if (isClose) return `</${tag}>`;
+      const color = extractColor();
+      return color ? `<${tag} style="color:${color}">` : `<${tag}>`;
+    }
+    if (tag === 'font' || tag === 'span') {
+      if (isClose) return '</span>';
+      const color = extractColor();
       return color ? `<span style="color:${color}">` : '<span>';
     }
     return '';
