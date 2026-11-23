@@ -1381,9 +1381,13 @@
       cell.classList.add('is-quote');
     }
 
-    // Linha superior: Número do dia + HOJE + Cor Litúrgica
+    const hasCustomTitle = Boolean(cellData && cellData.title);
+    const putTitleNextToDate = Boolean(dayNum !== null && hasCustomTitle && !cellData.isQuote);
+    const themeImg = resolveThemeImage(cellData, hasCustomTitle ? '' : holidayName);
+
+    // Linha superior: Número do dia + Título/Evento principal ao lado da data + Miniatura / Cor Litúrgica
     const topRow = document.createElement('div');
-    topRow.className = 'cell-top-row';
+    topRow.className = `cell-top-row${putTitleNextToDate ? ' has-top-title' : ''}`;
 
     const dayWrap = document.createElement('div');
     dayWrap.className = 'cell-day-wrap';
@@ -1404,7 +1408,22 @@
 
     topRow.appendChild(dayWrap);
 
-    if (cellData && cellData.liturgicalColor && LIT_LABELS[cellData.liturgicalColor]) {
+    if (putTitleNextToDate) {
+      const topTitleEl = document.createElement('div');
+      topTitleEl.className = 'cell-top-title';
+      topTitleEl.textContent = cellData.title;
+      topRow.appendChild(topTitleEl);
+
+      if (themeImg) {
+        const imgEl = document.createElement('img');
+        imgEl.className = 'theme-thumb theme-thumb-top';
+        imgEl.src = themeImg.src;
+        imgEl.alt = themeImg.alt;
+        imgEl.title = themeImg.alt;
+        imgEl.loading = 'lazy';
+        topRow.appendChild(imgEl);
+      }
+    } else if (cellData && cellData.liturgicalColor && LIT_LABELS[cellData.liturgicalColor]) {
       const litBadge = document.createElement('span');
       litBadge.className = `lit-badge lit-${cellData.liturgicalColor}`;
       litBadge.textContent = LIT_LABELS[cellData.liturgicalColor];
@@ -1419,17 +1438,29 @@
     const body = document.createElement('div');
     body.className = 'cell-body';
 
-    const hasCustomTitle = Boolean(cellData && cellData.title);
-    const themeImg = resolveThemeImage(cellData, hasCustomTitle ? '' : holidayName);
-
     if (cellData) {
-      if (cellData.tag) {
-        const tagEl = document.createElement('span');
-        tagEl.className = `cell-tag ${normalizeTagClass(cellData.tag)}`;
-        tagEl.textContent = cellData.tag;
-        body.appendChild(tagEl);
+      const hasLitInBody = Boolean(
+        putTitleNextToDate && cellData.liturgicalColor && LIT_LABELS[cellData.liturgicalColor]
+      );
+      if (cellData.tag || hasLitInBody) {
+        const badgesRow = document.createElement('div');
+        badgesRow.className = 'cell-badges-row';
+        if (cellData.tag) {
+          const tagEl = document.createElement('span');
+          tagEl.className = `cell-tag ${normalizeTagClass(cellData.tag)}`;
+          tagEl.textContent = cellData.tag;
+          badgesRow.appendChild(tagEl);
+        }
+        if (hasLitInBody) {
+          const litBadge = document.createElement('span');
+          litBadge.className = `lit-badge lit-${cellData.liturgicalColor}`;
+          litBadge.textContent = LIT_LABELS[cellData.liturgicalColor];
+          badgesRow.appendChild(litBadge);
+        }
+        body.appendChild(badgesRow);
       }
-      if (cellData.title) {
+
+      if (cellData.title && !putTitleNextToDate) {
         const titleRow = document.createElement('div');
         titleRow.className = 'cell-title-row';
 
@@ -2309,42 +2340,63 @@
       ctx.lineWidth = 1;
       ctx.strokeRect(cx, cy, colW, rowH);
 
-      // Linha superior: número do dia + cor litúrgica
-      let curY = cy + 14;
+      // Linha superior: número do dia + Título ao lado da data + cor litúrgica
+      let curY = cy + 12;
+      const hasInlineTitle = Boolean(dayNum !== null && cellData && cellData.title && !cellData.isQuote);
+      let dayNumEndX = cx + 12;
       if (dayNum !== null) {
+        const dayStr = `${dayNum}.`;
         ctx.fillStyle = c === 0 ? '#1e40af' : '#0f172a';
         ctx.font = '500 20px Inter, Segoe UI, sans-serif';
         ctx.textAlign = 'left';
         ctx.textBaseline = 'top';
-        ctx.fillText(`${dayNum}.`, cx + 12, curY);
+        ctx.fillText(dayStr, cx + 12, curY);
+        dayNumEndX = cx + 12 + ctx.measureText(dayStr).width + 8;
       }
 
+      let litPillW = 0;
       if (cellData && cellData.liturgicalColor && LIT_STYLES[cellData.liturgicalColor]) {
         const st = LIT_STYLES[cellData.liturgicalColor];
         const lbl = LIT_LABELS[cellData.liturgicalColor];
-        ctx.font = '500 13px Inter, Segoe UI, sans-serif';
+        ctx.font = '500 12px Inter, Segoe UI, sans-serif';
         const tw = ctx.measureText(lbl).width;
-        const pw = tw + 16;
-        const px = cx + colW - pw - 10;
+        litPillW = tw + 14;
+        const px = cx + colW - litPillW - 10;
         ctx.fillStyle = st.bg;
         ctx.strokeStyle = st.bd;
-        drawRoundedRect(ctx, px, curY + 1, pw, 22, 11);
+        drawRoundedRect(ctx, px, curY + 1, litPillW, 21, 10);
         ctx.fill();
         ctx.stroke();
         ctx.fillStyle = st.fg;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(lbl, px + pw / 2, curY + 12);
+        ctx.fillText(lbl, px + litPillW / 2, curY + 11.5);
+      }
+
+      let headerBottomY = curY + 26;
+      if (hasInlineTitle) {
+        const availTitleW = colW - (dayNumEndX - cx) - (litPillW ? litPillW + 16 : 12);
+        ctx.fillStyle = '#0f172a';
+        ctx.font = '500 14px Inter, Segoe UI, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        const tLines = wrapCanvasLines(ctx, cellData.title, Math.max(60, availTitleW), 2);
+        let ty = curY + 2;
+        for (const ln of tLines) {
+          ctx.fillText(ln, dayNumEndX, ty);
+          ty += 17;
+        }
+        headerBottomY = Math.max(headerBottomY, ty + 3);
       }
 
       if (dayNum !== null) {
-        curY += 30;
+        curY = headerBottomY;
         ctx.strokeStyle = 'rgba(203,213,225,0.6)';
         ctx.beginPath();
         ctx.moveTo(cx + 10, curY);
         ctx.lineTo(cx + colW - 10, curY);
         ctx.stroke();
-        curY += 8;
+        curY += 7;
       }
 
       const maxTextW = colW - 22;
@@ -2352,8 +2404,8 @@
       ctx.textAlign = 'left';
       ctx.textBaseline = 'top';
 
-      // Título
-      if (cellData && cellData.title) {
+      // Título (apenas para quadrados extras ou citações onde não há data)
+      if (cellData && cellData.title && !hasInlineTitle) {
         ctx.fillStyle = '#0f172a';
         ctx.font = '500 15px Inter, Segoe UI, sans-serif';
         const tLines = wrapCanvasLines(ctx, cellData.title, maxTextW, 2);
