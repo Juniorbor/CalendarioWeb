@@ -239,6 +239,235 @@
     }
   }
 
+  // =========================
+  // EDITOR RICO SEGURO (NEGRITO, ITÁLICO, SUBLINHADO E CORES)
+  // =========================
+  let savedRichRange = null;
+
+  function sanitizeSafeColorClient(raw) {
+    if (typeof raw !== 'string') return '';
+    const c = raw.trim().toLowerCase();
+    if (/^#[0-9a-f]{3}$/.test(c) || /^#[0-9a-f]{6}$/.test(c)) return c;
+    const m = c.match(/^rgb\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)$/);
+    if (m) {
+      return `rgb(${Math.min(255, Number(m[1]))}, ${Math.min(255, Number(m[2]))}, ${Math.min(255, Number(m[3]))})`;
+    }
+    return '';
+  }
+
+  function buildSanitizedRichFragment(html) {
+    const frag = document.createDocumentFragment();
+    if (typeof html !== 'string' || !html.trim()) return frag;
+
+    const parsed = new DOMParser().parseFromString(`<div>${html}</div>`, 'text/html');
+    const root = parsed.body.firstElementChild;
+    if (!root) return frag;
+
+    function walk(node, targetParent) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        if (node.nodeValue) {
+          targetParent.appendChild(document.createTextNode(node.nodeValue));
+        }
+        return;
+      }
+      if (node.nodeType !== Node.ELEMENT_NODE) return;
+
+      const tag = node.tagName.toLowerCase();
+      if (tag === 'script' || tag === 'style' || tag === 'iframe' || tag === 'object') return;
+
+      if (tag === 'br') {
+        targetParent.appendChild(document.createElement('br'));
+        return;
+      }
+
+      if (tag === 'div' || tag === 'p') {
+        if (targetParent.childNodes.length > 0 && targetParent.lastChild.nodeName !== 'BR') {
+          targetParent.appendChild(document.createElement('br'));
+        }
+        node.childNodes.forEach((child) => walk(child, targetParent));
+        return;
+      }
+
+      if (tag === 'b' || tag === 'strong' || tag === 'i' || tag === 'em' || tag === 'u') {
+        const mapped = tag === 'strong' ? 'b' : tag === 'em' ? 'i' : tag;
+        const el = document.createElement(mapped);
+        node.childNodes.forEach((child) => walk(child, el));
+        if (el.childNodes.length > 0) targetParent.appendChild(el);
+        return;
+      }
+
+      if (tag === 'span' || tag === 'font') {
+        const safeColor = sanitizeSafeColorClient(
+          node.style?.color || node.getAttribute('color') || ''
+        );
+        const isBold =
+          node.style?.fontWeight === 'bold' || Number(node.style?.fontWeight) >= 600;
+        const isItalic = node.style?.fontStyle === 'italic';
+        const isUnderline =
+          (node.style?.textDecoration || '').includes('underline') ||
+          (node.style?.textDecorationLine || '').includes('underline');
+
+        let container = targetParent;
+        if (safeColor) {
+          const sp = document.createElement('span');
+          sp.style.color = safeColor;
+          container = sp;
+        }
+        let inner = container;
+        if (isBold) {
+          const b = document.createElement('b');
+          inner.appendChild(b);
+          inner = b;
+        }
+        if (isItalic) {
+          const i = document.createElement('i');
+          inner.appendChild(i);
+          inner = i;
+        }
+        if (isUnderline) {
+          const u = document.createElement('u');
+          inner.appendChild(u);
+          inner = u;
+        }
+
+        node.childNodes.forEach((child) => walk(child, inner));
+        if (container !== targetParent && container.childNodes.length > 0) {
+          targetParent.appendChild(container);
+        }
+        return;
+      }
+
+      node.childNodes.forEach((child) => walk(child, targetParent));
+    }
+
+    root.childNodes.forEach((child) => walk(child, frag));
+    return frag;
+  }
+
+  function renderRichNotesInto(containerEl, cellData) {
+    if (!containerEl) return;
+    containerEl.innerHTML = '';
+    if (cellData && cellData.notesHtml) {
+      containerEl.appendChild(buildSanitizedRichFragment(cellData.notesHtml));
+    } else if (cellData && cellData.notes) {
+      containerEl.textContent = cellData.notes;
+    }
+  }
+
+  function setRichEditorContent(editorEl, cellData) {
+    if (!editorEl) return;
+    editorEl.innerHTML = '';
+    if (cellData && cellData.notesHtml) {
+      editorEl.appendChild(buildSanitizedRichFragment(cellData.notesHtml));
+    } else if (cellData && cellData.notes) {
+      const lines = String(cellData.notes).split(/\r?\n/);
+      lines.forEach((ln, idx) => {
+        if (idx > 0) editorEl.appendChild(document.createElement('br'));
+        if (ln) editorEl.appendChild(document.createTextNode(ln));
+      });
+    }
+  }
+
+  function serializeRichEditor(editorEl) {
+    if (!editorEl) return { plain: '', html: '' };
+    const frag = buildSanitizedRichFragment(editorEl.innerHTML);
+    const wrap = document.createElement('div');
+    wrap.appendChild(frag);
+    // Remove trailing <br> vazios inseridos pelo navegador
+    while (wrap.lastChild && wrap.lastChild.nodeName === 'BR') {
+      wrap.removeChild(wrap.lastChild);
+    }
+
+    // Extrair texto puro preservando quebras de linha
+    const plainLines = [];
+    function extractText(node) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        plainLines.push(node.nodeValue || '');
+      } else if (node.nodeType === Node.ELEMENT_NODE) {
+        if (node.tagName.toLowerCase() === 'br') {
+          plainLines.push('\n');
+        } else {
+          node.childNodes.forEach(extractText);
+        }
+      }
+    }
+    wrap.childNodes.forEach(extractText);
+    const plain = plainLines.join('').replace(/\u00a0/g, ' ').trim();
+    if (!plain) return { plain: '', html: '' };
+    return {
+      plain: plain.slice(0, 1500),
+      html: wrap.innerHTML.slice(0, 4500),
+    };
+  }
+
+  function saveRichSelection() {
+    const editor = $('cellNotes');
+    const sel = window.getSelection();
+    if (!editor || !sel || sel.rangeCount === 0) return;
+    const range = sel.getRangeAt(0);
+    if (editor.contains(range.commonAncestorContainer)) {
+      savedRichRange = range.cloneRange();
+    }
+  }
+
+  function restoreRichSelection() {
+    const editor = $('cellNotes');
+    if (!editor) return;
+    editor.focus();
+    if (savedRichRange) {
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(savedRichRange);
+    }
+  }
+
+  function updateRichToolbarState() {
+    const editor = $('cellNotes');
+    const sel = window.getSelection();
+    const inside = Boolean(
+      editor &&
+        sel &&
+        sel.rangeCount > 0 &&
+        editor.contains(sel.anchorNode)
+    );
+    document.querySelectorAll('.rich-btn[data-cmd]').forEach((btn) => {
+      let active = false;
+      if (inside) {
+        try {
+          active = Boolean(document.queryCommandState(btn.dataset.cmd));
+        } catch {}
+      }
+      btn.classList.toggle('active', active);
+    });
+  }
+
+  function applyRichFormatCmd(cmd) {
+    const editor = $('cellNotes');
+    if (!editor) return;
+    editor.focus();
+    try {
+      document.execCommand('styleWithCSS', false, false);
+      document.execCommand(cmd, false, null);
+    } catch {}
+    saveRichSelection();
+    updateRichToolbarState();
+    markCellDirty();
+  }
+
+  function applyRichTextColor(hexColor) {
+    const editor = $('cellNotes');
+    const safe = sanitizeSafeColorClient(hexColor);
+    if (!editor || !safe) return;
+    editor.focus();
+    try {
+      document.execCommand('styleWithCSS', false, true);
+      document.execCommand('foreColor', false, safe);
+    } catch {}
+    saveRichSelection();
+    updateRichToolbarState();
+    markCellDirty();
+  }
+
   let toastTimer = null;
   let activeUndoHandler = null;
   function showToast(message, type = 'info', undoHandler = null) {
@@ -805,10 +1034,10 @@
       content.appendChild(schedWrap);
     }
 
-    if (cellData && cellData.notes) {
+    if (cellData && (cellData.notes || cellData.notesHtml)) {
       const notesEl = document.createElement('p');
       notesEl.className = 'notepad-event-notes';
-      notesEl.textContent = cellData.notes;
+      renderRichNotesInto(notesEl, cellData);
       content.appendChild(notesEl);
     }
 
@@ -1200,10 +1429,10 @@
         mainCol.appendChild(sched);
       }
 
-      if (cellData && cellData.notes) {
+      if (cellData && (cellData.notes || cellData.notesHtml)) {
         const notesEl = document.createElement('div');
         notesEl.className = 'cell-notes';
-        notesEl.textContent = cellData.notes;
+        renderRichNotesInto(notesEl, cellData);
         mainCol.appendChild(notesEl);
       }
 
@@ -1501,10 +1730,10 @@
         }
         body.appendChild(schedWrap);
       }
-      if (cellData.notes) {
+      if (cellData.notes || cellData.notesHtml) {
         const notesEl = document.createElement('div');
         notesEl.className = cellData.isQuote ? 'quote-text' : 'cell-notes';
-        notesEl.textContent = cellData.notes;
+        renderRichNotesInto(notesEl, cellData);
         body.appendChild(notesEl);
       }
       if (Array.isArray(cellData.team) && cellData.team.length > 0) {
@@ -1972,7 +2201,9 @@
 
     $('cellTitle').value = existing.title || '';
     $('cellTag').value = existing.tag || '';
-    $('cellNotes').value = existing.notes || '';
+    setRichEditorContent($('cellNotes'), existing);
+    savedRichRange = null;
+    updateRichToolbarState();
     $('cellIsQuote').checked = Boolean(existing.isQuote);
     $('cellTeamPublic').checked = Boolean(existing.teamPublic);
     $('cellCustomImageInput').value = '';
@@ -2034,10 +2265,12 @@
         ? $('cellRepeatSelect').value
         : 'none';
 
+    const serializedNotes = clearAll ? { plain: '', html: '' } : serializeRichEditor($('cellNotes'));
     const payload = clearAll
       ? {
           title: '',
           notes: '',
+          notesHtml: '',
           schedule: [],
           team: [],
           teamPublic: false,
@@ -2050,7 +2283,8 @@
         }
       : {
           title: $('cellTitle').value,
-          notes: $('cellNotes').value,
+          notes: serializedNotes.plain,
+          notesHtml: serializedNotes.html,
           schedule: collectScheduleEditor(),
           team: collectTeamEditor(),
           teamPublic: $('cellTeamPublic').checked,
@@ -3473,6 +3707,7 @@
             ? `${MONTHS_CAP[m - 1]}: ${cell.title || cell.tag || 'Nota complementar'}`
             : cell.title || cell.tag || 'Nota complementar',
           notes: cell.notes || '',
+          notesHtml: cell.notesHtml || '',
           tag: cell.tag || '',
         });
       });
@@ -3726,10 +3961,10 @@
           tdDet.appendChild(ul);
         }
 
-        if (act.cell?.notes) {
+        if (act.cell?.notes || act.cell?.notesHtml) {
           const notesEl = document.createElement('div');
           notesEl.className = 'rs-act-notes';
-          notesEl.textContent = act.cell.notes;
+          renderRichNotesInto(notesEl, act.cell);
           tdDet.appendChild(notesEl);
         }
 
@@ -3769,10 +4004,10 @@
         t.className = 'rs-extra-title';
         t.textContent = en.tag ? `${en.title} (${en.tag})` : en.title;
         card.appendChild(t);
-        if (en.notes) {
+        if (en.notes || en.notesHtml) {
           const b = document.createElement('div');
           b.className = 'rs-extra-body';
-          b.textContent = en.notes;
+          renderRichNotesInto(b, en);
           card.appendChild(b);
         }
         list.appendChild(card);
@@ -3982,6 +4217,8 @@
   .rs-act-title { font-weight: 500; color: #0f172a; margin-bottom: 3px; }
   .rs-act-schedules { margin: 4px 0 0; padding-left: 16px; color: #334155; font-size: 12px; }
   .rs-act-notes { margin-top: 4px; color: #475569; white-space: pre-line; font-size: 12px; }
+  .rs-act-notes b, .rs-act-notes strong, .rs-extra-body b, .rs-extra-body strong { font-weight: 700; }
+  .rs-act-notes u, .rs-extra-body u { text-decoration: underline; }
   .rs-act-team { margin-top: 5px; padding-top: 4px; border-top: 1px dashed #e2e8f0; font-size: 12px; color: #334155; }
   .rs-act-holiday { font-size: 11px; color: #991b1b; }
   .rs-extra-list { display: flex; flex-direction: column; gap: 8px; }
@@ -4377,6 +4614,69 @@ ${clone.outerHTML}
     ['cellTitle', 'cellTag', 'cellNotes'].forEach((id) => {
       $(id).addEventListener('input', markCellDirty);
     });
+
+    // Barra de formatação rica (negrito, itálico, sublinhado e cores) de Observações / Detalhes / Reflexão
+    const richEditor = $('cellNotes');
+    if (richEditor) {
+      richEditor.addEventListener('keyup', () => {
+        saveRichSelection();
+        updateRichToolbarState();
+      });
+      richEditor.addEventListener('mouseup', () => {
+        saveRichSelection();
+        updateRichToolbarState();
+      });
+      richEditor.addEventListener('focus', () => updateRichToolbarState());
+      richEditor.addEventListener('input', () => {
+        saveRichSelection();
+        updateRichToolbarState();
+      });
+      richEditor.addEventListener('paste', (e) => {
+        e.preventDefault();
+        const text = (e.clipboardData || window.clipboardData)?.getData('text/plain') || '';
+        document.execCommand('insertText', false, text);
+        markCellDirty();
+      });
+    }
+
+    document.querySelectorAll('.rich-btn[data-cmd]').forEach((btn) => {
+      btn.addEventListener('mousedown', (e) => e.preventDefault());
+      btn.addEventListener('click', () => applyRichFormatCmd(btn.dataset.cmd));
+    });
+
+    document.querySelectorAll('.rich-color-dot[data-color]').forEach((btn) => {
+      btn.addEventListener('mousedown', (e) => e.preventDefault());
+      btn.addEventListener('click', () => applyRichTextColor(btn.dataset.color));
+    });
+
+    const customColorInput = $('richCustomColor');
+    if (customColorInput) {
+      customColorInput.addEventListener('mousedown', () => saveRichSelection());
+      customColorInput.addEventListener('focus', () => saveRichSelection());
+      customColorInput.addEventListener('input', (e) => {
+        restoreRichSelection();
+        applyRichTextColor(e.target.value);
+      });
+      customColorInput.addEventListener('change', (e) => {
+        restoreRichSelection();
+        applyRichTextColor(e.target.value);
+      });
+    }
+
+    const clearFmtBtn = $('richClearFmtBtn');
+    if (clearFmtBtn) {
+      clearFmtBtn.addEventListener('mousedown', (e) => e.preventDefault());
+      clearFmtBtn.addEventListener('click', () => {
+        const editor = $('cellNotes');
+        if (!editor) return;
+        editor.focus();
+        try {
+          document.execCommand('removeFormat', false, null);
+        } catch {}
+        updateRichToolbarState();
+        markCellDirty();
+      });
+    }
     $('cellIsQuote').addEventListener('change', markCellDirty);
     $('cellRepeatSelect').addEventListener('change', markCellDirty);
 
@@ -4635,7 +4935,11 @@ ${clone.outerHTML}
       }
 
       const tag = (document.activeElement?.tagName || '').toLowerCase();
-      const inInput = tag === 'input' || tag === 'textarea' || tag === 'select';
+      const inInput =
+        tag === 'input' ||
+        tag === 'textarea' ||
+        tag === 'select' ||
+        Boolean(document.activeElement?.isContentEditable);
       if (inInput || openModals.length > 0 || $('appView').classList.contains('hidden')) return;
 
       // Ctrl+Z: Desfazer última ação

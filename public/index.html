@@ -13,7 +13,7 @@
   <meta name="apple-mobile-web-app-title" content="Calendário" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
@@ -411,7 +411,41 @@
 
         <div class="field">
           <label for="cellNotes">Observações / Detalhes / Reflexão</label>
-          <textarea id="cellNotes" rows="3" maxlength="1500" placeholder="Adicione observações adicionais, nomes ou reflexões para este quadrado..."></textarea>
+          <div class="rich-notes-box">
+            <div class="rich-toolbar" role="toolbar" aria-label="Formatação do texto">
+              <div class="rich-btn-group">
+                <button type="button" class="rich-btn" data-cmd="bold" title="Negrito (Ctrl+B)" aria-label="Negrito"><strong>N</strong></button>
+                <button type="button" class="rich-btn" data-cmd="italic" title="Itálico (Ctrl+I)" aria-label="Itálico"><em>I</em></button>
+                <button type="button" class="rich-btn" data-cmd="underline" title="Sublinhado (Ctrl+U)" aria-label="Sublinhado"><u>S</u></button>
+              </div>
+              <span class="rich-sep" aria-hidden="true"></span>
+              <div class="rich-color-group" aria-label="Cores da fonte">
+                <button type="button" class="rich-color-dot" data-color="#334155" style="background:#334155" title="Cor padrão (Cinza escuro)" aria-label="Cor padrão"></button>
+                <button type="button" class="rich-color-dot" data-color="#0f172a" style="background:#0f172a" title="Preto" aria-label="Preto"></button>
+                <button type="button" class="rich-color-dot" data-color="#1d4ed8" style="background:#1d4ed8" title="Azul" aria-label="Azul"></button>
+                <button type="button" class="rich-color-dot" data-color="#dc2626" style="background:#dc2626" title="Vermelho" aria-label="Vermelho"></button>
+                <button type="button" class="rich-color-dot" data-color="#059669" style="background:#059669" title="Verde" aria-label="Verde"></button>
+                <button type="button" class="rich-color-dot" data-color="#7c3aed" style="background:#7c3aed" title="Roxo" aria-label="Roxo"></button>
+                <button type="button" class="rich-color-dot" data-color="#d97706" style="background:#d97706" title="Laranja / Dourado" aria-label="Laranja"></button>
+                <button type="button" class="rich-color-dot" data-color="#db2777" style="background:#db2777" title="Rosa" aria-label="Rosa"></button>
+                <label class="rich-color-custom" title="Escolher outra cor para a fonte">
+                  <span>+ Cor</span>
+                  <input type="color" id="richCustomColor" value="#1d4ed8" aria-label="Escolher cor personalizada da fonte" />
+                </label>
+              </div>
+              <span class="rich-sep" aria-hidden="true"></span>
+              <button type="button" id="richClearFmtBtn" class="rich-btn rich-btn-clear" title="Remover formatação do texto selecionado">Limpar</button>
+            </div>
+            <div
+              id="cellNotes"
+              class="rich-notes-editor"
+              contenteditable="true"
+              role="textbox"
+              aria-multiline="true"
+              data-placeholder="Adicione observações adicionais, nomes ou reflexões para este quadrado..."
+            ></div>
+          </div>
+          <div class="rich-hint">Selecione um trecho (ou escolha antes de digitar) para aplicar negrito, itálico, sublinhado ou cor na fonte.</div>
         </div>
 
         <div class="field">

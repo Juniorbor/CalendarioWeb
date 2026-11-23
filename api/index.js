@@ -578,6 +578,60 @@ function sanitizeTeam(raw) {
   return list;
 }
 
+function sanitizeSafeColor(raw) {
+  if (typeof raw !== 'string') return '';
+  const c = raw.trim().toLowerCase();
+  if (/^#[0-9a-f]{3}$/.test(c) || /^#[0-9a-f]{6}$/.test(c)) {
+    return c;
+  }
+  const rgbMatch = c.match(/^rgb\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)$/);
+  if (rgbMatch) {
+    const r = Math.min(255, Number(rgbMatch[1]));
+    const g = Math.min(255, Number(rgbMatch[2]));
+    const b = Math.min(255, Number(rgbMatch[3]));
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+  return '';
+}
+
+function sanitizeRichHtml(raw, maxLen = 4500) {
+  if (typeof raw !== 'string') return '';
+  let str = raw
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<!--[\s\S]*?-->/g, '');
+
+  str = str.replace(/<\/?([a-zA-Z0-9]+)([^>]*)>/g, (full, tagName, attrs) => {
+    const tag = tagName.toLowerCase();
+    const isClose = full.startsWith('</');
+    if (tag === 'br') return isClose ? '' : '<br>';
+    if (tag === 'b' || tag === 'strong' || tag === 'i' || tag === 'em' || tag === 'u' || tag === 'div' || tag === 'p') {
+      return isClose ? `</${tag}>` : `<${tag}>`;
+    }
+    if (tag === 'font' || tag === 'span') {
+      if (isClose) return '</span>';
+      let color = '';
+      const styleMatch = attrs.match(/style\s*=\s*["']([^"']*)["']/i);
+      if (styleMatch) {
+        const colMatch = styleMatch[1].match(/(?:^|;)\s*color\s*:\s*([^;]+)/i);
+        if (colMatch) color = sanitizeSafeColor(colMatch[1]);
+      }
+      if (!color) {
+        const attrMatch = attrs.match(/\bcolor\s*=\s*["']?([^"'\s>]+)["']?/i);
+        if (attrMatch) color = sanitizeSafeColor(attrMatch[1]);
+      }
+      return color ? `<span style="color:${color}">` : '<span>';
+    }
+    return '';
+  });
+
+  str = str.trim();
+  if (str.length > maxLen) {
+    return '';
+  }
+  return str;
+}
+
 function sanitizeCellPayload(body, username) {
   if (!body || typeof body !== 'object') return null;
   let customImage = '';
@@ -591,9 +645,12 @@ function sanitizeCellPayload(body, username) {
 
   const schedule = sanitizeSchedule(body.schedule);
   const team = sanitizeTeam(body.team);
+  const notes = sanitizeText(body.notes, 1500);
+  const notesHtml = notes ? sanitizeRichHtml(body.notesHtml, 4500) : '';
   const cleaned = {
     title: sanitizeText(body.title, 140),
-    notes: sanitizeText(body.notes, 1500),
+    notes,
+    notesHtml,
     schedule,
     team,
     teamPublic: Boolean(body.teamPublic),
@@ -610,6 +667,7 @@ function sanitizeCellPayload(body, username) {
   const isEmpty =
     !cleaned.title &&
     !cleaned.notes &&
+    !cleaned.notesHtml &&
     cleaned.schedule.length === 0 &&
     cleaned.team.length === 0 &&
     !cleaned.liturgicalColor &&
