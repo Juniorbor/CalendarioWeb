@@ -262,6 +262,7 @@
 
               <div class="menu-group admin-only">
                 <div class="menu-group-title">Ferramentas do Mês</div>
+                <button type="button" id="openReportBtn" class="menu-item" role="menuitem">Relatório mensal (dias úteis)</button>
                 <button type="button" id="autoLiturgicalBtn" class="menu-item" role="menuitem">Aplicar cores litúrgicas do mês</button>
                 <button type="button" id="sample2027Btn" class="menu-item" role="menuitem">Abrir modelo Jan/2027</button>
               </div>
@@ -311,6 +312,18 @@
         <div class="legend-tip desktop-tip-only" id="editModeTip">
           Clique para editar ou arraste um dia para mover
         </div>
+      </div>
+    </div>
+
+    <!-- Aviso Discreto de Relatório em Dia Útil (apenas para Admin) -->
+    <div id="businessDayBanner" class="business-day-banner hidden no-print admin-only" role="status">
+      <div class="bdb-info">
+        <span class="bdb-badge">Dia Útil</span>
+        <span id="businessDayBannerText">Relatório mensal detalhado disponível para emissão hoje.</span>
+      </div>
+      <div class="bdb-actions">
+        <button type="button" id="bdbOpenReportBtn" class="btn btn-primary btn-xs">Gerar Relatório</button>
+        <button type="button" id="bdbDismissBtn" class="bdb-close" title="Dispensar por hoje" aria-label="Dispensar por hoje">✕</button>
       </div>
     </div>
 
@@ -792,6 +805,120 @@
           </div>
         </div>
         <div id="yearOverviewGrid" class="year-overview-grid"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: RELATÓRIO MENSAL DETALHADO (DIAS ÚTEIS) -->
+  <div id="reportModal" class="modal-backdrop report-modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="reportModalTitle">
+    <div class="modal-card modal-xl report-modal-card">
+      <div class="modal-header no-print">
+        <div>
+          <h2 id="reportModalTitle">Relatório Mensal Detalhado — Dias Úteis</h2>
+          <p id="reportModalSub" class="modal-sub">Relatório oficial dos trabalhos realizados no mês com a logo e o nome da Paróquia.</p>
+        </div>
+        <button type="button" class="modal-close" data-close="reportModal" aria-label="Fechar">✕</button>
+      </div>
+
+      <div class="modal-body report-modal-body">
+        <!-- Controles do Relatório (não aparecem na impressão) -->
+        <div class="report-controls no-print">
+          <div class="report-controls-grid">
+            <div class="field">
+              <label for="reportScopeSelect">Abrangência do relatório</label>
+              <select id="reportScopeSelect">
+                <option value="full">Mês completo (todos os trabalhos do mês)</option>
+                <option value="upto_today">Acompanhamento até hoje (dia 1 até a data atual)</option>
+                <option value="business_only">Somente atividades em dias úteis (seg–sex)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="reportAutoFreqSelect">Emissão / lembrete automático em dias úteis</label>
+              <select id="reportAutoFreqSelect">
+                <option value="every_business_day">Todo dia útil do mês (automático)</option>
+                <option value="last_business_day">Somente no último dia útil do mês</option>
+                <option value="manual">Desativar aviso automático (somente manual)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="reportNotesInput">Considerações / Parecer da Administração (opcional — impresso na folha)</label>
+            <textarea id="reportNotesInput" rows="2" maxlength="800" placeholder="Ex.: Relatório encaminhado ao Presbitério e Conselho Paroquial com o resumo das atividades realizadas neste mês..."></textarea>
+          </div>
+
+          <div class="report-actions-bar">
+            <div id="reportBusinessDayMeta" class="report-bday-meta"></div>
+            <div class="report-action-btns">
+              <button type="button" id="downloadReportBtn" class="btn btn-outline btn-sm">Baixar Documento (.html)</button>
+              <button type="button" id="printReportBtn" class="btn btn-primary btn-sm">Imprimir / Salvar PDF</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- FOLHA OFICIAL DO RELATÓRIO (IMPRIMÍVEL EM A4 RETRATO) -->
+        <article id="reportSheet" class="report-sheet" aria-label="Folha do Relatório Mensal">
+          <header class="rs-header">
+            <img src="/images/logo-paroquia.png" alt="Logo Paróquia Evangélica de Confissão Luterana Martim Lutero" class="rs-logo" />
+            <div class="rs-org">
+              <div class="rs-church-name">Paróquia Evangélica de Confissão Luterana — Martim Lutero</div>
+              <div class="rs-church-sub">IECLB — Igreja Evangélica de Confissão Luterana no Brasil • Cacoal – RO</div>
+              <div class="rs-doc-title">Relatório Mensal Detalhado de Atividades e Trabalhos Realizados</div>
+            </div>
+          </header>
+
+          <section class="rs-meta-grid" id="rsMetaGrid"></section>
+
+          <section class="rs-section">
+            <h3 class="rs-section-title">1. Resumo Executivo do Mês</h3>
+            <div id="rsKpiGrid" class="rs-kpi-grid"></div>
+          </section>
+
+          <section class="rs-section" id="rsCategoriesSection">
+            <h3 class="rs-section-title">2. Distribuição dos Trabalhos por Área / Categoria</h3>
+            <div id="rsCategoriesWrap" class="rs-categories-wrap"></div>
+          </section>
+
+          <section class="rs-section">
+            <h3 class="rs-section-title">3. Detalhamento Cronológico das Atividades Realizadas</h3>
+            <div id="rsActivitiesWrap"></div>
+          </section>
+
+          <section class="rs-section" id="rsExtraNotesSection">
+            <h3 class="rs-section-title">4. Reflexões e Notas Complementares do Mês</h3>
+            <div id="rsExtraNotesWrap"></div>
+          </section>
+
+          <section class="rs-section" id="rsTeamSection">
+            <h3 class="rs-section-title">5. Resumo de Participação da Equipe / Ministérios</h3>
+            <div id="rsTeamWrap"></div>
+          </section>
+
+          <section class="rs-section" id="rsBirthdaysSection">
+            <h3 class="rs-section-title">6. Aniversariantes da Comunidade no Mês</h3>
+            <div id="rsBirthdaysWrap"></div>
+          </section>
+
+          <section class="rs-section hidden" id="rsAdminNotesSection">
+            <h3 class="rs-section-title">Considerações Finais da Administração</h3>
+            <p id="rsAdminNotesText" class="rs-admin-notes-text"></p>
+          </section>
+
+          <footer class="rs-footer">
+            <div id="rsCityDate" class="rs-city-date"></div>
+            <div class="rs-signatures">
+              <div class="rs-sig-col">
+                <div class="rs-sig-line"></div>
+                <div class="rs-sig-label">Presidência / Pastor(a)</div>
+              </div>
+              <div class="rs-sig-col">
+                <div class="rs-sig-line"></div>
+                <div class="rs-sig-label">Secretaria / Administração</div>
+              </div>
+            </div>
+            <div id="rsDocFooterNote" class="rs-doc-footer-note"></div>
+          </footer>
+        </article>
       </div>
     </div>
   </div>

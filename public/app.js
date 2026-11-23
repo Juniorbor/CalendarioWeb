@@ -505,6 +505,7 @@
 
     loadMonth(state.viewYear, state.viewMonth).then(() => {
       checkTomorrowReminder({ autoPopup: true });
+      checkBusinessDayReportBanner();
     });
   }
 
@@ -2732,6 +2733,780 @@
   }
 
   // =========================
+  // RELATÓRIO MENSAL DETALHADO (DIAS ÚTEIS)
+  // =========================
+  const REPORT_FREQ_KEY = 'calendario_report_freq';
+  const REPORT_DISMISSED_KEY = 'calendario_report_dismissed_date';
+  const REPORT_GENERATED_KEY = 'calendario_report_generated_date';
+  const REPORT_NOTES_PREFIX = 'calendario_report_notes_';
+
+  function getTodayIsoKey() {
+    return `${state.today.year}-${String(state.today.month).padStart(2, '0')}-${String(state.today.day).padStart(2, '0')}`;
+  }
+
+  function getReportFreq() {
+    try {
+      const saved = localStorage.getItem(REPORT_FREQ_KEY);
+      if (saved === 'every_business_day' || saved === 'last_business_day' || saved === 'manual') {
+        return saved;
+      }
+    } catch {}
+    return 'every_business_day';
+  }
+
+  function setReportFreq(val) {
+    try {
+      localStorage.setItem(REPORT_FREQ_KEY, val);
+    } catch {}
+  }
+
+  function getReportSavedNotes(year, month) {
+    try {
+      return localStorage.getItem(`${REPORT_NOTES_PREFIX}${year}-${month}`) || '';
+    } catch {
+      return '';
+    }
+  }
+
+  function saveReportNotes(year, month, text) {
+    try {
+      localStorage.setItem(`${REPORT_NOTES_PREFIX}${year}-${month}`, text || '');
+    } catch {}
+  }
+
+  function getBusinessDaysInfo(year, month) {
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const holidays = getBrazilianHolidays(year);
+    const businessDays = [];
+    const holidayDays = [];
+    const weekendDays = [];
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dow = new Date(year, month - 1, d).getDay();
+      const isWeekend = dow === 0 || dow === 6;
+      const isHoliday = Boolean(holidays[`${month}-${d}`]);
+      if (isWeekend) {
+        weekendDays.push(d);
+      } else if (isHoliday) {
+        holidayDays.push(d);
+      } else {
+        businessDays.push(d);
+      }
+    }
+
+    const lastBusinessDay = businessDays.length ? businessDays[businessDays.length - 1] : daysInMonth;
+    return {
+      daysInMonth,
+      businessDays,
+      totalBusinessDays: businessDays.length,
+      lastBusinessDay,
+      holidayDays,
+      weekendDays,
+      isBusinessDay(day) {
+        return businessDays.includes(Number(day));
+      },
+      getBusinessDayOrdinal(day) {
+        const idx = businessDays.indexOf(Number(day));
+        return idx >= 0 ? idx + 1 : null;
+      },
+    };
+  }
+
+  function checkBusinessDayReportBanner() {
+    const banner = $('businessDayBanner');
+    if (!banner) return;
+    if (state.publicMode || !state.user) {
+      banner.classList.add('hidden');
+      return;
+    }
+
+    const freq = getReportFreq();
+    if (freq === 'manual') {
+      banner.classList.add('hidden');
+      return;
+    }
+
+    const todayIso = getTodayIsoKey();
+    try {
+      if (localStorage.getItem(REPORT_DISMISSED_KEY) === todayIso) {
+        banner.classList.add('hidden');
+        return;
+      }
+      if (localStorage.getItem(REPORT_GENERATED_KEY) === todayIso) {
+        banner.classList.add('hidden');
+        return;
+      }
+    } catch {}
+
+    const { year, month, day } = state.today;
+    const bInfo = getBusinessDaysInfo(year, month);
+    const isTodayBday = bInfo.isBusinessDay(day);
+    const isLastBday = day === bInfo.lastBusinessDay;
+
+    const shouldShow =
+      (freq === 'every_business_day' && isTodayBday) ||
+      (freq === 'last_business_day' && isLastBday);
+
+    if (!shouldShow) {
+      banner.classList.add('hidden');
+      return;
+    }
+
+    const ord = bInfo.getBusinessDayOrdinal(day);
+    const monthLabel = MONTHS_CAP[month - 1];
+    const msgEl = $('businessDayBannerText');
+    if (msgEl) {
+      if (isLastBday) {
+        msgEl.textContent = `Último dia útil de ${monthLabel}/${year} (${ord}º de ${bInfo.totalBusinessDays} dias úteis) — gere o relatório mensal detalhado oficial.`;
+      } else {
+        msgEl.textContent = `${ord}º dia útil de ${monthLabel}/${year} (${bInfo.totalBusinessDays} dias úteis no mês) — relatório mensal detalhado pronto para emissão.`;
+      }
+    }
+    banner.classList.remove('hidden');
+  }
+
+  function markReportGeneratedToday() {
+    try {
+      localStorage.setItem(REPORT_GENERATED_KEY, getTodayIsoKey());
+    } catch {}
+    const banner = $('businessDayBanner');
+    if (banner) banner.classList.add('hidden');
+  }
+
+  function inferReportCategory(cellData, holidayName) {
+    const rawTag = (cellData?.tag || '').trim();
+    if (rawTag) return rawTag;
+    const text = normalizeTextForMatch(`${cellData?.title || ''} ${cellData?.notes || ''}`);
+    if (/(culto|santa ceia|batismo|confirmacao|celebracao|vigilia)/.test(text)) return 'Culto';
+    if (/(reuniao|presbiterio|conselho|diretoria|assembleia)/.test(text)) return 'Reunião';
+    if (/(formacao|estudo|curso|teologic|escola|ensino|palestra|seminario)/.test(text)) return 'Formação';
+    if (/(citacao|reflexao|lutero|meditacao)/.test(text)) return 'Citação';
+    if (cellData?.title || cellData?.notes || (cellData?.schedule && cellData.schedule.length)) {
+      return 'Evento / Atividade';
+    }
+    if (holidayName) return 'Feriado Nacional';
+    return 'Atividades Gerais';
+  }
+
+  function isServiceActivity(cellData, category) {
+    const combined = normalizeTextForMatch(`${category} ${cellData?.title || ''} ${(cellData?.schedule || []).map((s) => s.text).join(' ')}`);
+    return /(culto|santa ceia|batismo|confirmacao|celebracao|vigilia)/.test(combined);
+  }
+
+  function openReportModal() {
+    const freqSelect = $('reportAutoFreqSelect');
+    if (freqSelect) freqSelect.value = getReportFreq();
+    const notesInput = $('reportNotesInput');
+    if (notesInput) notesInput.value = getReportSavedNotes(state.viewYear, state.viewMonth);
+    renderMonthlyReport();
+    openModal('reportModal');
+  }
+
+  function renderMonthlyReport() {
+    const year = state.viewYear;
+    const month = state.viewMonth;
+    const monthNameCap = MONTHS_CAP[month - 1];
+    const scope = $('reportScopeSelect')?.value || 'full';
+    const freq = $('reportAutoFreqSelect')?.value || getReportFreq();
+    const adminNotes = ($('reportNotesInput')?.value || '').trim();
+    const holidays = getBrazilianHolidays(year);
+    const bInfo = getBusinessDaysInfo(year, month);
+
+    // Atualiza resumo de dias úteis na barra de controles
+    const todayBInfo = getBusinessDaysInfo(state.today.year, state.today.month);
+    const todayIsBday = todayBInfo.isBusinessDay(state.today.day);
+    const todayOrd = todayBInfo.getBusinessDayOrdinal(state.today.day);
+    let generatedToday = false;
+    try {
+      generatedToday = localStorage.getItem(REPORT_GENERATED_KEY) === getTodayIsoKey();
+    } catch {}
+
+    const bdayMetaEl = $('reportBusinessDayMeta');
+    if (bdayMetaEl) {
+      const todayPart = todayIsBday
+        ? `Hoje é o ${todayOrd}º dia útil de ${MONTHS_CAP[state.today.month - 1]}/${state.today.year}`
+        : `Hoje (${String(state.today.day).padStart(2, '0')}/${String(state.today.month).padStart(2, '0')}) não é dia útil`;
+      const monthPart = `${monthNameCap}/${year}: ${bInfo.totalBusinessDays} dias úteis (último dia útil: ${String(bInfo.lastBusinessDay).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year})`;
+      const statusPart = generatedToday ? ' • Relatório já emitido hoje' : '';
+      bdayMetaEl.textContent = `${todayPart} • ${monthPart}${statusPart}`;
+    }
+
+    // Determinar dias incluídos conforme abrangência
+    let maxDay = bInfo.daysInMonth;
+    if (scope === 'upto_today') {
+      if (year === state.today.year && month === state.today.month) {
+        maxDay = state.today.day;
+      } else if (year > state.today.year || (year === state.today.year && month > state.today.month)) {
+        maxDay = 0;
+      }
+    }
+
+    const activities = [];
+    const categoryCounts = new Map();
+    const teamParticipation = new Map();
+    let totalSchedulesCount = 0;
+    let cultosCount = 0;
+    let businessDaysWithWork = 0;
+    let teamAssignmentsCount = 0;
+
+    for (let d = 1; d <= maxDay; d++) {
+      const isBday = bInfo.isBusinessDay(d);
+      if (scope === 'business_only' && !isBday) continue;
+
+      const key = `day-${d}`;
+      const cell = state.monthData.cells[key] || null;
+      const holidayName = holidays[`${month}-${d}`] || '';
+      const hasCustom = Boolean(
+        cell &&
+          (cell.title ||
+            cell.notes ||
+            cell.tag ||
+            (Array.isArray(cell.schedule) && cell.schedule.length > 0) ||
+            (Array.isArray(cell.team) && cell.team.length > 0))
+      );
+
+      if (!hasCustom && !holidayName) continue;
+
+      const dow = new Date(year, month - 1, d).getDay();
+      const category = inferReportCategory(cell, holidayName);
+      categoryCounts.set(category, (categoryCounts.get(category) || 0) + 1);
+
+      const schedList = Array.isArray(cell?.schedule) ? cell.schedule : [];
+      totalSchedulesCount += schedList.length > 0 ? schedList.length : 1;
+
+      if (isServiceActivity(cell, category)) cultosCount += 1;
+      if (isBday) businessDaysWithWork += 1;
+
+      const teamList = Array.isArray(cell?.team) ? cell.team : [];
+      teamList.forEach((member) => {
+        teamAssignmentsCount += 1;
+        const person = (member.person || '').trim();
+        const role = (member.role || '').trim();
+        const mapKey = person && role ? `${person} (${role})` : person || role;
+        if (mapKey) {
+          teamParticipation.set(mapKey, (teamParticipation.get(mapKey) || 0) + 1);
+        }
+      });
+
+      activities.push({
+        day: d,
+        dow,
+        isBday,
+        bdayOrdinal: bInfo.getBusinessDayOrdinal(d),
+        holidayName,
+        category,
+        cell,
+        schedList,
+        teamList,
+      });
+    }
+
+    // Notas extras dos quadrados complementares (pad-start / pad-end)
+    const extraNotes = [];
+    Object.entries(state.monthData.cells || {}).forEach(([key, cell]) => {
+      if (!key.startsWith('pad-')) return;
+      if (!cell || (!cell.title && !cell.notes)) return;
+      extraNotes.push({
+        title: cell.title || cell.tag || 'Nota complementar',
+        notes: cell.notes || '',
+        tag: cell.tag || '',
+      });
+    });
+
+    // Aniversariantes do mês (ordenados por dia)
+    const birthdays = [...(state.monthBirthdays || [])]
+      .filter((b) => scope !== 'upto_today' || Number(b.day) <= maxDay)
+      .filter((b) => scope !== 'business_only' || bInfo.isBusinessDay(Number(b.day)))
+      .sort((a, b) => Number(a.day) - Number(b.day) || (a.name || '').localeCompare(b.name || ''));
+
+    // 1) Cabeçalho de Metadados (#rsMetaGrid)
+    const scopeLabels = {
+      full: 'Mês completo (todos os dias)',
+      upto_today:
+        year === state.today.year && month === state.today.month
+          ? `Acompanhamento acumulado (01 a ${String(state.today.day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year})`
+          : 'Acompanhamento até a data atual',
+      business_only: 'Somente atividades em dias úteis (seg–sex)',
+    };
+    const freqLabels = {
+      every_business_day: 'Todo dia útil do mês',
+      last_business_day: 'Último dia útil do mês',
+      manual: 'Emissão manual',
+    };
+    const now = new Date();
+    const nowTimeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const todayDateStr = `${String(state.today.day).padStart(2, '0')}/${String(state.today.month).padStart(2, '0')}/${state.today.year}`;
+    const emissionSuffix = todayIsBday ? ` (${todayOrd}º dia útil)` : ' (fim de semana / feriado)';
+
+    const metaGrid = $('rsMetaGrid');
+    metaGrid.innerHTML = '';
+    const metaItems = [
+      { label: 'Competência', val: `${monthNameCap} de ${year}` },
+      { label: 'Data de Emissão', val: `${todayDateStr} às ${nowTimeStr}${emissionSuffix}` },
+      { label: 'Abrangência', val: scopeLabels[scope] || scopeLabels.full },
+      {
+        label: 'Dias Úteis no Mês',
+        val: `${bInfo.totalBusinessDays} dias úteis (último: ${String(bInfo.lastBusinessDay).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year})`,
+      },
+      { label: 'Responsável pela Emissão', val: state.user?.displayName || 'Administração Paroquial' },
+      { label: 'Regime de Emissão', val: freqLabels[freq] || freqLabels.every_business_day },
+    ];
+    if (state.monthData.verse) {
+      metaItems.push({ label: 'Versículo / Lema do Mês', val: state.monthData.verse, full: true });
+    }
+    metaItems.forEach((item) => {
+      const box = document.createElement('div');
+      box.className = `rs-meta-item${item.full ? ' rs-meta-full' : ''}`;
+      const lbl = document.createElement('span');
+      lbl.className = 'rs-meta-label';
+      lbl.textContent = item.label;
+      const val = document.createElement('span');
+      val.className = 'rs-meta-val';
+      val.textContent = item.val;
+      box.append(lbl, val);
+      metaGrid.appendChild(box);
+    });
+
+    // 2) KPIs Executivos (#rsKpiGrid)
+    const kpiGrid = $('rsKpiGrid');
+    kpiGrid.innerHTML = '';
+    const kpis = [
+      {
+        num: String(activities.length),
+        label: 'Dias com Trabalhos / Registros',
+        sub: `de ${maxDay} dia(s) analisado(s)`,
+      },
+      {
+        num: String(totalSchedulesCount),
+        label: 'Atividades e Horários Previstos',
+        sub: 'soma de compromissos e horários',
+      },
+      {
+        num: String(cultosCount),
+        label: 'Cultos e Celebrações',
+        sub: 'atos litúrgicos identificados',
+      },
+      {
+        num: `${businessDaysWithWork}/${bInfo.totalBusinessDays}`,
+        label: 'Dias Úteis com Atividades',
+        sub: `${bInfo.holidayDays.length} feriado(s) nacional(is) em dia útil`,
+      },
+      {
+        num: String(teamAssignmentsCount),
+        label: 'Participações de Equipe',
+        sub: `${teamParticipation.size} função/membro(s) escalado(s)`,
+      },
+      {
+        num: String(birthdays.length),
+        label: 'Aniversariantes da Comunidade',
+        sub: 'celebrados no período',
+      },
+    ];
+    kpis.forEach((k) => {
+      const card = document.createElement('div');
+      card.className = 'rs-kpi-card';
+      const num = document.createElement('div');
+      num.className = 'rs-kpi-num';
+      num.textContent = k.num;
+      const lbl = document.createElement('div');
+      lbl.className = 'rs-kpi-label';
+      lbl.textContent = k.label;
+      const sub = document.createElement('div');
+      sub.className = 'rs-kpi-sub';
+      sub.textContent = k.sub;
+      card.append(num, lbl, sub);
+      kpiGrid.appendChild(card);
+    });
+
+    // 3) Distribuição por Área / Categoria (#rsCategoriesSection)
+    const catSec = $('rsCategoriesSection');
+    const catWrap = $('rsCategoriesWrap');
+    catWrap.innerHTML = '';
+    const sortedCats = Array.from(categoryCounts.entries()).sort((a, b) => b[1] - a[1]);
+    if (sortedCats.length === 0) {
+      catSec.classList.add('hidden');
+    } else {
+      catSec.classList.remove('hidden');
+      const totalAct = activities.length || 1;
+      sortedCats.forEach(([catName, count]) => {
+        const pct = Math.round((count / totalAct) * 100);
+        const row = document.createElement('div');
+        row.className = 'rs-cat-row';
+
+        const head = document.createElement('div');
+        head.className = 'rs-cat-head';
+        const nm = document.createElement('span');
+        nm.textContent = catName;
+        const ct = document.createElement('span');
+        ct.className = 'rs-cat-count';
+        ct.textContent = `${count} registro(s) (${pct}%)`;
+        head.append(nm, ct);
+
+        const track = document.createElement('div');
+        track.className = 'rs-cat-bar-track';
+        const fill = document.createElement('div');
+        fill.className = 'rs-cat-bar-fill';
+        fill.style.width = `${Math.max(4, pct)}%`;
+        track.appendChild(fill);
+
+        row.append(head, track);
+        catWrap.appendChild(row);
+      });
+    }
+
+    // 4) Detalhamento Cronológico das Atividades (#rsActivitiesWrap)
+    const actWrap = $('rsActivitiesWrap');
+    actWrap.innerHTML = '';
+    if (activities.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'rs-empty-box';
+      empty.textContent = 'Nenhuma atividade registrada para o recorte selecionado neste mês.';
+      actWrap.appendChild(empty);
+    } else {
+      const table = document.createElement('table');
+      table.className = 'rs-table';
+      const thead = document.createElement('thead');
+      thead.innerHTML =
+        '<tr><th>Data / Dia</th><th>Área / Liturgia</th><th>Detalhamento dos Trabalhos Realizados</th></tr>';
+      const tbody = document.createElement('tbody');
+
+      activities.forEach((act) => {
+        const tr = document.createElement('tr');
+
+        // Coluna Data
+        const tdDate = document.createElement('td');
+        tdDate.className = 'rs-date-col';
+        const dtMain = document.createElement('div');
+        dtMain.className = 'rs-date-main';
+        dtMain.textContent = `${String(act.day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`;
+        const dtSub = document.createElement('div');
+        dtSub.className = 'rs-day-sub';
+        dtSub.textContent = WEEKDAYS_CAP[act.dow];
+        const dtBadge = document.createElement('span');
+        if (act.isBday) {
+          dtBadge.className = 'rs-day-type is-bday';
+          dtBadge.textContent = `${act.bdayOrdinal}º dia útil`;
+        } else if (act.holidayName && act.dow >= 1 && act.dow <= 5) {
+          dtBadge.className = 'rs-day-type is-hol';
+          dtBadge.textContent = 'Feriado';
+        } else {
+          dtBadge.className = 'rs-day-type is-wknd';
+          dtBadge.textContent = 'Fim de semana';
+        }
+        tdDate.append(dtMain, dtSub, dtBadge);
+
+        // Coluna Área / Liturgia
+        const tdCat = document.createElement('td');
+        tdCat.className = 'rs-cat-col';
+        const tagBadge = document.createElement('span');
+        tagBadge.className = `cell-tag ${normalizeTagClass(act.category)}`;
+        tagBadge.textContent = act.category;
+        tdCat.appendChild(tagBadge);
+
+        if (act.cell?.liturgicalColor && LIT_LABELS[act.cell.liturgicalColor]) {
+          const litWrap = document.createElement('div');
+          litWrap.style.marginTop = '5px';
+          const lit = document.createElement('span');
+          lit.className = `lit-badge lit-${act.cell.liturgicalColor}`;
+          lit.textContent = LIT_LABELS[act.cell.liturgicalColor];
+          litWrap.appendChild(lit);
+          tdCat.appendChild(litWrap);
+        }
+
+        // Coluna Detalhamento
+        const tdDet = document.createElement('td');
+        const mainTitle = act.cell?.title || act.holidayName || act.category;
+        const titleEl = document.createElement('div');
+        titleEl.className = 'rs-act-title';
+        titleEl.textContent = mainTitle;
+        tdDet.appendChild(titleEl);
+
+        if (act.holidayName && act.cell?.title && act.cell.title !== act.holidayName) {
+          const holNote = document.createElement('div');
+          holNote.className = 'rs-act-holiday';
+          holNote.textContent = `Feriado nacional: ${act.holidayName}`;
+          tdDet.appendChild(holNote);
+        }
+
+        if (act.schedList.length > 0) {
+          const ul = document.createElement('ul');
+          ul.className = 'rs-act-schedules';
+          act.schedList.forEach((item) => {
+            const li = document.createElement('li');
+            li.textContent = item.time
+              ? `${item.time} — ${item.text || 'Atividade programada'}`
+              : item.text;
+            ul.appendChild(li);
+          });
+          tdDet.appendChild(ul);
+        }
+
+        if (act.cell?.notes) {
+          const notesEl = document.createElement('div');
+          notesEl.className = 'rs-act-notes';
+          notesEl.textContent = act.cell.notes;
+          tdDet.appendChild(notesEl);
+        }
+
+        if (act.teamList.length > 0) {
+          const teamEl = document.createElement('div');
+          teamEl.className = 'rs-act-team';
+          const formatted = act.teamList
+            .map((m) => (m.role && m.person ? `${m.role}: ${m.person}` : m.person || m.role))
+            .filter(Boolean)
+            .join(' • ');
+          teamEl.textContent = `Equipe / Responsáveis: ${formatted}`;
+          tdDet.appendChild(teamEl);
+        }
+
+        tr.append(tdDate, tdCat, tdDet);
+        tbody.appendChild(tr);
+      });
+
+      table.append(thead, tbody);
+      actWrap.appendChild(table);
+    }
+
+    // 5) Reflexões e Notas Complementares (#rsExtraNotesSection)
+    const extraSec = $('rsExtraNotesSection');
+    const extraWrap = $('rsExtraNotesWrap');
+    extraWrap.innerHTML = '';
+    if (extraNotes.length === 0) {
+      extraSec.classList.add('hidden');
+    } else {
+      extraSec.classList.remove('hidden');
+      const list = document.createElement('div');
+      list.className = 'rs-extra-list';
+      extraNotes.forEach((en) => {
+        const card = document.createElement('div');
+        card.className = 'rs-extra-card';
+        const t = document.createElement('div');
+        t.className = 'rs-extra-title';
+        t.textContent = en.tag ? `${en.title} (${en.tag})` : en.title;
+        card.appendChild(t);
+        if (en.notes) {
+          const b = document.createElement('div');
+          b.className = 'rs-extra-body';
+          b.textContent = en.notes;
+          card.appendChild(b);
+        }
+        list.appendChild(card);
+      });
+      extraWrap.appendChild(list);
+    }
+
+    // 6) Resumo de Participação da Equipe (#rsTeamSection)
+    const teamSec = $('rsTeamSection');
+    const teamWrap = $('rsTeamWrap');
+    teamWrap.innerHTML = '';
+    const sortedTeam = Array.from(teamParticipation.entries()).sort((a, b) => b[1] - a[1]);
+    if (sortedTeam.length === 0) {
+      teamSec.classList.add('hidden');
+    } else {
+      teamSec.classList.remove('hidden');
+      const grid = document.createElement('div');
+      grid.className = 'rs-team-grid';
+      sortedTeam.forEach(([label, count]) => {
+        const chip = document.createElement('div');
+        chip.className = 'rs-chip-card';
+        const m = document.createElement('span');
+        m.className = 'rs-chip-main';
+        m.textContent = label;
+        const s = document.createElement('span');
+        s.className = 'rs-chip-sub';
+        s.textContent = `${count} participação(ões)`;
+        chip.append(m, s);
+        grid.appendChild(chip);
+      });
+      teamWrap.appendChild(grid);
+    }
+
+    // 7) Aniversariantes da Comunidade (#rsBirthdaysSection)
+    const bdaySec = $('rsBirthdaysSection');
+    const bdayWrap = $('rsBirthdaysWrap');
+    bdayWrap.innerHTML = '';
+    if (birthdays.length === 0) {
+      bdaySec.classList.add('hidden');
+    } else {
+      bdaySec.classList.remove('hidden');
+      const grid = document.createElement('div');
+      grid.className = 'rs-bday-grid';
+      birthdays.forEach((b) => {
+        const chip = document.createElement('div');
+        chip.className = 'rs-chip-card';
+        const left = document.createElement('div');
+        const m = document.createElement('div');
+        m.className = 'rs-chip-main';
+        m.textContent = b.name;
+        left.appendChild(m);
+        if (b.note) {
+          const n = document.createElement('div');
+          n.className = 'rs-chip-sub';
+          n.textContent = b.note;
+          left.appendChild(n);
+        }
+        const right = document.createElement('span');
+        right.className = 'rs-chip-sub';
+        right.textContent = `Dia ${String(b.day).padStart(2, '0')}/${String(month).padStart(2, '0')}`;
+        chip.append(left, right);
+        grid.appendChild(chip);
+      });
+      bdayWrap.appendChild(grid);
+    }
+
+    // 8) Considerações da Administração (#rsAdminNotesSection)
+    const adminNotesSec = $('rsAdminNotesSection');
+    const adminNotesText = $('rsAdminNotesText');
+    if (adminNotes) {
+      adminNotesSec.classList.remove('hidden');
+      adminNotesText.textContent = adminNotes;
+    } else {
+      adminNotesSec.classList.add('hidden');
+      adminNotesText.textContent = '';
+    }
+
+    // 9) Rodapé Oficial & Assinaturas
+    $('rsCityDate').textContent = `Cacoal – RO, ${state.today.day} de ${MONTHS_CAP[state.today.month - 1]} de ${state.today.year}.`;
+    $('rsDocFooterNote').textContent = `Documento oficial gerado pelo Calendário Mensal — Paróquia Evangélica de Confissão Luterana Martim Lutero (IECLB) • Emitido em ${todayDateStr} às ${nowTimeStr}.`;
+  }
+
+  function printMonthlyReport() {
+    renderMonthlyReport();
+    markReportGeneratedToday();
+    document.body.classList.add('printing-report');
+    window.print();
+    // Garantia de remoção da classe caso o navegador não dispare afterprint
+    setTimeout(() => {
+      document.body.classList.remove('printing-report');
+    }, 1500);
+  }
+
+  async function getParishLogoDataUrl() {
+    const img = await loadImageAsset('/images/logo-paroquia.png');
+    if (!img) return `${window.location.origin}/images/logo-paroquia.png`;
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth || 240;
+      canvas.height = img.naturalHeight || 240;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      return canvas.toDataURL('image/png');
+    } catch {
+      return `${window.location.origin}/images/logo-paroquia.png`;
+    }
+  }
+
+  async function downloadMonthlyReportHtml() {
+    renderMonthlyReport();
+    const sheetEl = $('reportSheet');
+    if (!sheetEl) return;
+
+    const logoDataUrl = await getParishLogoDataUrl();
+    const clone = sheetEl.cloneNode(true);
+    const logoImg = clone.querySelector('.rs-logo');
+    if (logoImg) logoImg.setAttribute('src', logoDataUrl);
+
+    const monthSlug = normalizeTextForMatch(MONTHS_CAP[state.viewMonth - 1]).replace(/[^a-z0-9]+/g, '-');
+    const titleText = `Relatório Mensal — ${MONTHS_CAP[state.viewMonth - 1]} ${state.viewYear} — Paróquia Martim Lutero`;
+
+    const standaloneHtml = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>${titleText}</title>
+<style>
+  @page { size: A4 portrait; margin: 12mm; }
+  * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { margin: 0; padding: 24px; background: #eef2f7; font-family: 'Inter', 'Segoe UI', Roboto, Arial, sans-serif; color: #1e293b; }
+  .hidden { display: none !important; }
+  .report-sheet { max-width: 840px; margin: 0 auto; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 28px 32px; display: flex; flex-direction: column; gap: 18px; }
+  .rs-header { display: flex; align-items: center; gap: 18px; padding-bottom: 16px; border-bottom: 2px solid #1e3a5f; }
+  .rs-logo { width: 78px; height: 78px; object-fit: contain; flex-shrink: 0; }
+  .rs-org { display: flex; flex-direction: column; gap: 3px; }
+  .rs-church-name { font-size: 19px; font-weight: 500; color: #1e3a5f; }
+  .rs-church-sub { font-size: 13px; color: #475569; }
+  .rs-doc-title { margin-top: 4px; font-size: 15px; font-weight: 500; color: #1d4ed8; text-transform: uppercase; letter-spacing: 0.03em; }
+  .rs-meta-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 14px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 11px 14px; }
+  .rs-meta-item { display: flex; flex-direction: column; gap: 2px; }
+  .rs-meta-item.rs-meta-full { grid-column: 1 / -1; padding-top: 6px; border-top: 1px dashed #cbd5e1; }
+  .rs-meta-label { font-size: 11px; font-weight: 500; color: #64748b; text-transform: uppercase; }
+  .rs-meta-val { font-size: 13px; color: #0f172a; }
+  .rs-section { display: flex; flex-direction: column; gap: 10px; }
+  .rs-section-title { margin: 0; font-size: 14px; font-weight: 500; color: #1e3a5f; padding-bottom: 5px; border-bottom: 1px solid #cbd5e1; }
+  .rs-kpi-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .rs-kpi-card { background: #f8fafc; border: 1px solid #e2e8f0; border-left: 3px solid #2563eb; border-radius: 6px; padding: 10px 12px; }
+  .rs-kpi-num { font-size: 20px; font-weight: 500; color: #0f172a; }
+  .rs-kpi-label { font-size: 12px; color: #475569; }
+  .rs-kpi-sub { font-size: 11px; color: #64748b; }
+  .rs-categories-wrap { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 18px; }
+  .rs-cat-row { display: flex; flex-direction: column; gap: 4px; }
+  .rs-cat-head { display: flex; justify-content: space-between; font-size: 13px; }
+  .rs-cat-count { font-size: 12px; color: #475569; }
+  .rs-cat-bar-track { height: 7px; background: #e2e8f0; border-radius: 999px; overflow: hidden; }
+  .rs-cat-bar-fill { height: 100%; background: #2563eb; }
+  .rs-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .rs-table th { background: #1e3a5f; color: #ffffff; font-weight: 500; text-align: left; padding: 8px 10px; border: 1px solid #1e3a5f; font-size: 12px; }
+  .rs-table td { padding: 8px 10px; border: 1px solid #cbd5e1; vertical-align: top; line-height: 1.42; }
+  .rs-table tbody tr:nth-child(even) { background: #f8fafc; }
+  .rs-date-col { width: 118px; white-space: nowrap; }
+  .rs-date-main { font-weight: 500; color: #0f172a; }
+  .rs-day-sub { font-size: 11px; color: #64748b; margin-top: 2px; }
+  .rs-day-type { display: inline-block; margin-top: 4px; padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 500; }
+  .rs-day-type.is-bday { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+  .rs-day-type.is-wknd { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
+  .rs-day-type.is-hol { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+  .cell-tag { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 11px; background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
+  .lit-badge { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; border: 1px solid #cbd5e1; }
+  .lit-branco { background: #ffffff; color: #78350f; border-color: #d97706; }
+  .lit-verde { background: #ecfdf5; color: #065f46; border-color: #34d399; }
+  .lit-vermelho { background: #fef2f2; color: #991b1b; border-color: #f87171; }
+  .lit-roxo { background: #f5f3ff; color: #5b21b6; border-color: #a78bfa; }
+  .lit-rosa { background: #fdf2f8; color: #9d174d; border-color: #f472b6; }
+  .lit-dourado { background: #fffbeb; color: #92400e; border-color: #fbbf24; }
+  .lit-preto { background: #f1f5f9; color: #0f172a; border-color: #475569; }
+  .rs-act-title { font-weight: 500; color: #0f172a; margin-bottom: 3px; }
+  .rs-act-schedules { margin: 4px 0 0; padding-left: 16px; color: #334155; font-size: 12px; }
+  .rs-act-notes { margin-top: 4px; color: #475569; white-space: pre-line; font-size: 12px; }
+  .rs-act-team { margin-top: 5px; padding-top: 4px; border-top: 1px dashed #e2e8f0; font-size: 12px; color: #334155; }
+  .rs-act-holiday { font-size: 11px; color: #991b1b; }
+  .rs-extra-list { display: flex; flex-direction: column; gap: 8px; }
+  .rs-extra-card { background: #f8fafc; border: 1px solid #e2e8f0; border-left: 3px solid #64748b; border-radius: 5px; padding: 9px 12px; font-size: 13px; }
+  .rs-extra-title { font-weight: 500; color: #0f172a; margin-bottom: 3px; }
+  .rs-extra-body { color: #475569; white-space: pre-line; }
+  .rs-team-grid, .rs-bday-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; }
+  .rs-chip-card { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 10px; border: 1px solid #e2e8f0; border-radius: 5px; background: #f8fafc; font-size: 12px; }
+  .rs-chip-main { color: #0f172a; font-weight: 500; }
+  .rs-chip-sub { color: #64748b; font-size: 11px; }
+  .rs-empty-box { padding: 12px; border: 1px dashed #cbd5e1; border-radius: 6px; color: #64748b; font-size: 13px; }
+  .rs-admin-notes-text { margin: 0; padding: 10px 14px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 13px; line-height: 1.5; white-space: pre-line; }
+  .rs-footer { margin-top: 8px; padding-top: 14px; border-top: 1px solid #cbd5e1; display: flex; flex-direction: column; gap: 18px; break-inside: avoid; }
+  .rs-city-date { text-align: right; font-size: 13px; color: #334155; }
+  .rs-signatures { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 36px; margin-top: 18px; }
+  .rs-sig-col { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .rs-sig-line { width: 100%; max-width: 260px; border-bottom: 1px solid #475569; height: 22px; }
+  .rs-sig-label { font-size: 12px; color: #475569; }
+  .rs-doc-footer-note { text-align: center; font-size: 11px; color: #64748b; padding-top: 6px; border-top: 1px solid #e2e8f0; }
+  @media print { body { background: #ffffff; padding: 0; } .report-sheet { border: none; padding: 0; max-width: none; } tr { break-inside: avoid; } }
+</style>
+</head>
+<body>
+${clone.outerHTML}
+</body>
+</html>`;
+
+    const blob = new Blob([standaloneHtml], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `relatorio-mensal-${monthSlug}-${state.viewYear}.html`;
+    a.click();
+    URL.revokeObjectURL(url);
+    markReportGeneratedToday();
+    showToast('Relatório mensal baixado com a logo da igreja!', 'success');
+  }
+
+  // =========================
   // LISTENERS DE EVENTOS
   // =========================
   function bindEvents() {
@@ -2971,6 +3746,29 @@
       window.location.href = '/';
     });
 
+    // Relatório Mensal Detalhado (Dias Úteis)
+    $('openReportBtn').addEventListener('click', () => openReportModal());
+    $('bdbOpenReportBtn').addEventListener('click', () => openReportModal());
+    $('bdbDismissBtn').addEventListener('click', () => {
+      try {
+        localStorage.setItem(REPORT_DISMISSED_KEY, getTodayIsoKey());
+      } catch {}
+      $('businessDayBanner')?.classList.add('hidden');
+    });
+    $('reportScopeSelect').addEventListener('change', () => renderMonthlyReport());
+    $('reportAutoFreqSelect').addEventListener('change', (e) => {
+      setReportFreq(e.target.value);
+      renderMonthlyReport();
+      checkBusinessDayReportBanner();
+      showToast('Frequência automática de relatório em dias úteis atualizada!', 'success');
+    });
+    $('reportNotesInput').addEventListener('input', (e) => {
+      saveReportNotes(state.viewYear, state.viewMonth, e.target.value);
+      renderMonthlyReport();
+    });
+    $('printReportBtn').addEventListener('click', () => printMonthlyReport());
+    $('downloadReportBtn').addEventListener('click', () => downloadMonthlyReportHtml());
+
     // Cores Litúrgicas Automáticas do Mês (IECLB) + Desfazer na barra
     $('autoLiturgicalBtn').addEventListener('click', () => applyAutoLiturgicalColors());
     $('undoToolbarBtn').addEventListener('click', () => runLastUndo());
@@ -3151,8 +3949,11 @@
       });
     });
 
-    // Imprimir
-    $('printBtn').addEventListener('click', () => window.print());
+    // Imprimir calendário (paisagem)
+    $('printBtn').addEventListener('click', () => {
+      document.body.classList.remove('printing-report');
+      window.print();
+    });
 
     // Busca
     $('openSearchBtn').addEventListener('click', () => {
@@ -3353,6 +4154,7 @@
       fitAllCellTexts();
     });
     window.addEventListener('afterprint', () => {
+      document.body.classList.remove('printing-report');
       startVerseRotation();
       fitAllCellTexts();
     });

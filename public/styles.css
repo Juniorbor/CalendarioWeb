@@ -2843,8 +2843,582 @@ body {
 }
 
 /* =========================
-   IMPRESSÃO PAISAGEM LIMPA
+   AVISO DISCRETO DE DIA ÚTIL (RELATÓRIO MENSAL)
    ========================= */
+.business-day-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 14px;
+  padding: 7px 20px;
+  background: #eff6ff;
+  border-bottom: 1px solid #bfdbfe;
+  font-size: 0.84rem;
+  font-weight: 400;
+  color: #1e3a8a;
+}
+
+.bdb-info {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.bdb-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #1d4ed8;
+  color: #ffffff;
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
+.bdb-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.bdb-close {
+  border: 1px solid #bfdbfe;
+  background: #ffffff;
+  color: #475569;
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bdb-close:hover {
+  background: #dbeafe;
+  color: #1e3a8a;
+}
+
+/* =========================
+   MODAL E FOLHA DO RELATÓRIO MENSAL DETALHADO
+   ========================= */
+.report-modal-card {
+  max-width: 1020px;
+}
+
+.report-modal-body {
+  background: #eef2f7;
+  gap: 16px;
+}
+
+.report-controls {
+  background: #ffffff;
+  border: 1px solid var(--border-grid);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.report-controls-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.report-actions-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.report-bday-meta {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+.report-action-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.report-sheet {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  padding: 28px 32px;
+  color: #1e293b;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  page: reportPage;
+}
+
+.rs-header {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding-bottom: 16px;
+  border-bottom: 2px solid #1e3a5f;
+}
+
+.rs-logo {
+  width: 78px;
+  height: 78px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.rs-org {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.rs-church-name {
+  font-size: 1.24rem;
+  font-weight: 500;
+  color: #1e3a5f;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+
+.rs-church-sub {
+  font-size: 0.84rem;
+  font-weight: 400;
+  color: #475569;
+}
+
+.rs-doc-title {
+  margin-top: 4px;
+  font-size: 0.96rem;
+  font-weight: 500;
+  color: #1d4ed8;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.rs-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 11px 14px;
+}
+
+.rs-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rs-meta-item.rs-meta-full {
+  grid-column: 1 / -1;
+  padding-top: 6px;
+  border-top: 1px dashed #cbd5e1;
+}
+
+.rs-meta-label {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.rs-meta-val {
+  font-size: 0.86rem;
+  font-weight: 400;
+  color: #0f172a;
+  word-break: break-word;
+}
+
+.rs-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rs-section-title {
+  margin: 0;
+  font-size: 0.94rem;
+  font-weight: 500;
+  color: #1e3a5f;
+  padding-bottom: 5px;
+  border-bottom: 1px solid #cbd5e1;
+  letter-spacing: 0.01em;
+}
+
+.rs-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.rs-kpi-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-left: 3px solid #2563eb;
+  border-radius: 6px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rs-kpi-num {
+  font-size: 1.32rem;
+  font-weight: 500;
+  color: #0f172a;
+  line-height: 1.15;
+}
+
+.rs-kpi-label {
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: #475569;
+}
+
+.rs-kpi-sub {
+  font-size: 0.72rem;
+  color: #64748b;
+}
+
+.rs-categories-wrap {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 18px;
+}
+
+.rs-cat-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rs-cat-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.83rem;
+  color: #1e293b;
+}
+
+.rs-cat-count {
+  font-size: 0.79rem;
+  color: #475569;
+}
+
+.rs-cat-bar-track {
+  height: 7px;
+  background: #e2e8f0;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.rs-cat-bar-fill {
+  height: 100%;
+  background: #2563eb;
+  border-radius: 999px;
+}
+
+.rs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.83rem;
+}
+
+.rs-table th {
+  background: #1e3a5f;
+  color: #ffffff;
+  font-weight: 500;
+  text-align: left;
+  padding: 8px 10px;
+  border: 1px solid #1e3a5f;
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+}
+
+.rs-table td {
+  padding: 8px 10px;
+  border: 1px solid #cbd5e1;
+  vertical-align: top;
+  line-height: 1.42;
+  color: #1e293b;
+}
+
+.rs-table tbody tr:nth-child(even) {
+  background: #f8fafc;
+}
+
+.rs-date-col {
+  width: 118px;
+  white-space: nowrap;
+}
+
+.rs-date-main {
+  font-weight: 500;
+  color: #0f172a;
+}
+
+.rs-day-sub {
+  font-size: 0.74rem;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.rs-day-type {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.68rem;
+  font-weight: 500;
+}
+
+.rs-day-type.is-bday {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+}
+
+.rs-day-type.is-wknd {
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+}
+
+.rs-day-type.is-hol {
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+
+.rs-cat-col {
+  width: 118px;
+}
+
+.rs-act-title {
+  font-weight: 500;
+  color: #0f172a;
+  margin-bottom: 3px;
+}
+
+.rs-act-schedules {
+  margin: 4px 0 0;
+  padding-left: 16px;
+  color: #334155;
+  font-size: 0.81rem;
+}
+
+.rs-act-schedules li {
+  margin-bottom: 2px;
+}
+
+.rs-act-notes {
+  margin-top: 4px;
+  color: #475569;
+  white-space: pre-line;
+  font-size: 0.81rem;
+}
+
+.rs-act-team {
+  margin-top: 5px;
+  padding-top: 4px;
+  border-top: 1px dashed #e2e8f0;
+  font-size: 0.78rem;
+  color: #334155;
+}
+
+.rs-act-holiday {
+  display: inline-block;
+  margin-top: 3px;
+  font-size: 0.76rem;
+  color: #991b1b;
+}
+
+.rs-extra-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rs-extra-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-left: 3px solid #64748b;
+  border-radius: 5px;
+  padding: 9px 12px;
+  font-size: 0.84rem;
+}
+
+.rs-extra-title {
+  font-weight: 500;
+  color: #0f172a;
+  margin-bottom: 3px;
+}
+
+.rs-extra-body {
+  color: #475569;
+  white-space: pre-line;
+}
+
+.rs-team-grid,
+.rs-bday-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+}
+
+.rs-chip-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 5px;
+  background: #f8fafc;
+  font-size: 0.82rem;
+}
+
+.rs-chip-main {
+  color: #0f172a;
+  font-weight: 500;
+}
+
+.rs-chip-sub {
+  color: #64748b;
+  font-size: 0.76rem;
+}
+
+.rs-empty-box {
+  padding: 12px 14px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 6px;
+  color: #64748b;
+  font-size: 0.84rem;
+  background: #f8fafc;
+}
+
+.rs-admin-notes-text {
+  margin: 0;
+  padding: 10px 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: #1e293b;
+  white-space: pre-line;
+}
+
+.rs-footer {
+  margin-top: 8px;
+  padding-top: 14px;
+  border-top: 1px solid #cbd5e1;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.rs-city-date {
+  text-align: right;
+  font-size: 0.85rem;
+  color: #334155;
+}
+
+.rs-signatures {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 36px;
+  margin-top: 20px;
+}
+
+.rs-sig-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.rs-sig-line {
+  width: 100%;
+  max-width: 260px;
+  border-bottom: 1px solid #475569;
+  height: 22px;
+}
+
+.rs-sig-label {
+  font-size: 0.8rem;
+  color: #475569;
+}
+
+.rs-doc-footer-note {
+  text-align: center;
+  font-size: 0.74rem;
+  color: #64748b;
+  padding-top: 6px;
+  border-top: 1px solid #e2e8f0;
+}
+
+@media (max-width: 780px) {
+  .business-day-banner {
+    padding: 8px 12px;
+  }
+  .report-controls-grid,
+  .rs-meta-grid,
+  .rs-kpi-grid,
+  .rs-categories-wrap,
+  .rs-team-grid,
+  .rs-bday-grid,
+  .rs-signatures {
+    grid-template-columns: 1fr;
+  }
+  .report-sheet {
+    padding: 16px 14px;
+  }
+  .rs-header {
+    flex-direction: column;
+    text-align: center;
+  }
+  .rs-table {
+    font-size: 0.78rem;
+  }
+  .rs-date-col,
+  .rs-cat-col {
+    width: auto;
+    white-space: normal;
+  }
+}
+
+/* =========================
+   IMPRESSÃO PAISAGEM LIMPA (CALENDÁRIO) & RETRATO (RELATÓRIO)
+   ========================= */
+@page reportPage {
+  size: A4 portrait;
+  margin: 11mm;
+}
+
 @media print {
   @page {
     size: A4 landscape;
@@ -2891,6 +3465,51 @@ body {
     height: 104px !important;
     min-height: 104px !important;
     max-height: 104px !important;
+    break-inside: avoid;
+  }
+
+  /* Modo de impressão exclusivo do Relatório Mensal em A4 Retrato */
+  body.printing-report #appView,
+  body.printing-report #setupView,
+  body.printing-report #loginView {
+    display: none !important;
+  }
+
+  body.printing-report #reportModal {
+    display: block !important;
+    position: static !important;
+    inset: auto !important;
+    background: #ffffff !important;
+    backdrop-filter: none !important;
+    padding: 0 !important;
+  }
+
+  body.printing-report .report-modal-card {
+    max-width: none !important;
+    max-height: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+  }
+
+  body.printing-report .report-modal-body {
+    background: #ffffff !important;
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+
+  body.printing-report .report-sheet {
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+  }
+
+  body.printing-report .rs-table tr,
+  body.printing-report .rs-kpi-card,
+  body.printing-report .rs-extra-card,
+  body.printing-report .rs-footer {
     break-inside: avoid;
   }
 }
