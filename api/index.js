@@ -1044,12 +1044,29 @@ module.exports = async function handler(req, res) {
       return sendJson(res, 200, { ok: true, birthdays: db.birthdays, updatedAt: db.updatedAt });
     }
 
-    // GET /api/calendar/year/:year (Visão Anual - 12 meses)
+    // GET /api/calendar/year/:year (Visão Anual - 12 meses; ?detailed=1 retorna todas as células para relatórios)
     const yearMatch = pathname.match(/^\/api\/calendar\/year\/(\d{4})$/);
     if (yearMatch && method === 'GET') {
       const y = Number(yearMatch[1]);
       if (!Number.isInteger(y) || y < 1900 || y > 2200) {
         return sendJson(res, 400, { error: 'Ano inválido.' });
+      }
+      if (urlObj.searchParams.get('detailed') === '1') {
+        const detailedMonths = {};
+        for (let m = 1; m <= 12; m++) {
+          const mKey = `${y}-${String(m).padStart(2, '0')}`;
+          const mData = db.months[mKey] || { verse: '', versePinned: false, cells: {} };
+          detailedMonths[m] = {
+            verse: mData.verse || '',
+            versePinned: Boolean(mData.versePinned),
+            cells: mData.cells || {},
+          };
+        }
+        return sendJson(res, 200, {
+          year: y,
+          months: detailedMonths,
+          birthdays: db.birthdays || [],
+        });
       }
       return sendJson(res, 200, { year: y, months: buildYearSummary(db, y) });
     }

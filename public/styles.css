@@ -3214,7 +3214,12 @@ body {
 }
 
 .rs-cat-col {
-  width: 118px;
+  width: 136px;
+}
+
+.report-sheet .cell-tag {
+  display: inline-block;
+  white-space: nowrap;
 }
 
 .rs-act-title {
@@ -3320,6 +3325,171 @@ body {
   background: #f8fafc;
 }
 
+/* Consolidado Anual no Relatório */
+.rs-annual-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.rs-annual-kpi-card {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  padding: 9px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rs-annual-kpi-num {
+  font-size: 1.24rem;
+  font-weight: 500;
+  color: #1e3a8a;
+  line-height: 1.15;
+}
+
+.rs-annual-kpi-label {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: #334155;
+}
+
+.rs-annual-rank-col {
+  width: 38px;
+  text-align: center;
+  color: #64748b;
+}
+
+.rs-annual-qty-col {
+  width: 136px;
+}
+
+.rs-qty-wrap {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.rs-qty-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1e40af;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.rs-qty-pct {
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.rs-qty-bar-track {
+  margin-top: 5px;
+  height: 5px;
+  background: #e2e8f0;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.rs-qty-bar-fill {
+  height: 100%;
+  background: #2563eb;
+  border-radius: 999px;
+}
+
+.rs-annual-dates {
+  font-size: 0.77rem;
+  color: #475569;
+  line-height: 1.4;
+}
+
+.rs-table tfoot td {
+  background: #eff6ff;
+  color: #1e3a5f;
+  font-weight: 500;
+  border-top: 2px solid #1e3a5f;
+}
+
+.rs-annual-subhead {
+  margin-top: 4px;
+  font-size: 0.84rem;
+  font-weight: 500;
+  color: #334155;
+}
+
+.rs-annual-month-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.rs-annual-month-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.rs-annual-month-card.has-items {
+  background: #ffffff;
+  border-color: #bfdbfe;
+}
+
+.rs-annual-month-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.rs-annual-month-name {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #1e3a5f;
+}
+
+.rs-annual-month-count {
+  font-size: 0.74rem;
+  font-weight: 500;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #475569;
+}
+
+.rs-annual-month-card.has-items .rs-annual-month-count {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.rs-annual-month-bar {
+  height: 4px;
+  background: #e2e8f0;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.rs-annual-month-bar-fill {
+  height: 100%;
+  background: #2563eb;
+  border-radius: 999px;
+}
+
+.rs-annual-month-list {
+  font-size: 0.72rem;
+  color: #475569;
+  line-height: 1.35;
+}
+
 .rs-admin-notes-text {
   margin: 0;
   padding: 10px 14px;
@@ -3388,6 +3558,8 @@ body {
   .report-controls-grid,
   .rs-meta-grid,
   .rs-kpi-grid,
+  .rs-annual-kpi-grid,
+  .rs-annual-month-grid,
   .rs-categories-wrap,
   .rs-team-grid,
   .rs-bday-grid,
@@ -3508,6 +3680,8 @@ body {
 
   body.printing-report .rs-table tr,
   body.printing-report .rs-kpi-card,
+  body.printing-report .rs-annual-kpi-card,
+  body.printing-report .rs-annual-month-card,
   body.printing-report .rs-extra-card,
   body.printing-report .rs-footer {
     break-inside: avoid;

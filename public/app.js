@@ -2893,13 +2893,366 @@
     return /(culto|santa ceia|batismo|confirmacao|celebracao|vigilia)/.test(combined);
   }
 
-  function openReportModal() {
+  function extractDayNamedActivities(cell, holidayName, category) {
+    const schedList = Array.isArray(cell?.schedule) ? cell.schedule : [];
+    const hasCustom = Boolean(
+      cell &&
+        (cell.title ||
+          cell.notes ||
+          cell.tag ||
+          schedList.length > 0 ||
+          (Array.isArray(cell.team) && cell.team.length > 0))
+    );
+
+    if (schedList.length > 0) {
+      return schedList.map((item) => {
+        const schedText = (item.text || '').trim();
+        const fallbackTitle = (cell?.title || '').trim();
+        const actName = schedText || fallbackTitle || category;
+        return {
+          name: actName,
+          category: inferReportCategory({ title: actName, tag: cell?.tag, notes: cell?.notes }, holidayName),
+          time: (item.time || '').trim(),
+          isCustom: true,
+        };
+      });
+    }
+
+    if (hasCustom) {
+      const firstNoteLine = (cell?.notes || '').trim().split(/\r?\n/)[0]?.slice(0, 72) || '';
+      const actName = (cell?.title || '').trim() || (cell?.tag || '').trim() || firstNoteLine || category;
+      return [
+        {
+          name: actName,
+          category,
+          time: '',
+          isCustom: true,
+        },
+      ];
+    }
+
+    if (holidayName) {
+      return [
+        {
+          name: holidayName,
+          category: 'Feriado Nacional',
+          time: '',
+          isCustom: false,
+        },
+      ];
+    }
+
+    return [];
+  }
+
+  async function fetchYearDetailedForReport(year) {
+    try {
+      const res = await apiFetch(`/api/calendar/year/${year}?detailed=1`);
+      const months = res.months || {};
+      if (state.viewYear === year) {
+        months[state.viewMonth] = {
+          verse: state.monthData.verse || '',
+          versePinned: Boolean(state.monthData.versePinned),
+          cells: state.monthData.cells || {},
+        };
+      }
+      state.reportYearCache = {
+        year,
+        months,
+        birthdays: Array.isArray(res.birthdays) ? res.birthdays : state.allBirthdays || [],
+      };
+      return state.reportYearCache;
+    } catch {
+      const fallbackMonths = {};
+      for (let m = 1; m <= 12; m++) {
+        fallbackMonths[m] =
+          state.viewYear === year && state.viewMonth === m
+            ? {
+                verse: state.monthData.verse || '',
+                versePinned: Boolean(state.monthData.versePinned),
+                cells: state.monthData.cells || {},
+              }
+            : { verse: '', versePinned: false, cells: {} };
+      }
+      state.reportYearCache = {
+        year,
+        months: fallbackMonths,
+        birthdays: state.monthBirthdays || [],
+      };
+      return state.reportYearCache;
+    }
+  }
+
+  function buildAnnualActivitiesSummary(year, yearMonths, holidays) {
+    const byNameMap = new Map();
+    const byMonth = [];
+    let totalActivitiesYear = 0;
+    let customActivitiesYear = 0;
+    let holidayOnlyYear = 0;
+    let totalDaysWithWorkYear = 0;
+    let activeMonthsCount = 0;
+
+    for (let m = 1; m <= 12; m++) {
+      const mData = yearMonths?.[m] || { verse: '', cells: {} };
+      const cells = mData.cells || {};
+      const daysInMonth = new Date(year, m, 0).getDate();
+      const monthShort = MONTHS_CAP[m - 1].slice(0, 3);
+      let monthCount = 0;
+      let monthCustomCount = 0;
+      const monthNamesMap = new Map();
+
+      for (let d = 1; d <= daysInMonth; d++) {
+        const cell = cells[`day-${d}`] || null;
+        const holidayName = holidays[`${m}-${d}`] || '';
+        const category = inferReportCategory(cell, holidayName);
+        const namedList = extractDayNamedActivities(cell, holidayName, category);
+        if (namedList.length === 0) continue;
+
+        totalDaysWithWorkYear += 1;
+        namedList.forEach((entry) => {
+          totalActivitiesYear += 1;
+          monthCount += 1;
+          if (entry.isCustom) {
+            customActivitiesYear += 1;
+            monthCustomCount += 1;
+          } else {
+            holidayOnlyYear += 1;
+          }
+
+          const normKey = normalizeTextForMatch(entry.name).replace(/\s+/g, ' ').trim();
+          const dateLabel = `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}`;
+          if (!byNameMap.has(normKey)) {
+            byNameMap.set(normKey, {
+              name: entry.name,
+              category: entry.category,
+              count: 0,
+              isCustom: entry.isCustom,
+              dates: [],
+            });
+          }
+          const rec = byNameMap.get(normKey);
+          rec.count += 1;
+          if (entry.isCustom) rec.isCustom = true;
+          rec.dates.push({ month: m, day: d, label: dateLabel, monthShort });
+
+          monthNamesMap.set(entry.name, (monthNamesMap.get(entry.name) || 0) + 1);
+        });
+      }
+
+      if (monthCount > 0) activeMonthsCount += 1;
+      byMonth.push({
+        month: m,
+        name: MONTHS_CAP[m - 1],
+        short: monthShort,
+        count: monthCount,
+        customCount: monthCustomCount,
+        names: Array.from(monthNamesMap.entries()).map(([nm, ct]) => (ct > 1 ? `${nm} (${ct}x)` : nm)),
+      });
+    }
+
+    const sortedByName = Array.from(byNameMap.values()).sort(
+      (a, b) => b.count - a.count || a.name.localeCompare(b.name, 'pt-BR')
+    );
+
+    return {
+      totalActivitiesYear,
+      customActivitiesYear,
+      holidayOnlyYear,
+      distinctActivitiesCount: sortedByName.length,
+      totalDaysWithWorkYear,
+      activeMonthsCount,
+      byName: sortedByName,
+      byMonth,
+    };
+  }
+
+  function renderAnnualSectionInReport(year, yearMonths, holidays) {
+    const annual = buildAnnualActivitiesSummary(year, yearMonths, holidays);
+    const titleEl = $('rsAnnualTitle');
+    if (titleEl) {
+      titleEl.textContent = `3. Consolidado Anual (${year}) — Quantidade e Nome de Cada Atividade Apresentada`;
+    }
+
+    // 4 Cartões de Resumo Anual
+    const kpiWrap = $('rsAnnualKpiGrid');
+    if (kpiWrap) {
+      kpiWrap.innerHTML = '';
+      const cards = [
+        {
+          num: String(annual.totalActivitiesYear),
+          label: `Atividades no ano (${annual.customActivitiesYear} cadastradas + ${annual.holidayOnlyYear} feriados)`,
+        },
+        {
+          num: String(annual.distinctActivitiesCount),
+          label: 'Nomes de atividades distintas no ano',
+        },
+        {
+          num: String(annual.totalDaysWithWorkYear),
+          label: 'Dias com atividades registradas no ano',
+        },
+        {
+          num: `${annual.activeMonthsCount}/12`,
+          label: 'Meses com atividades no ano',
+        },
+      ];
+      cards.forEach((c) => {
+        const card = document.createElement('div');
+        card.className = 'rs-annual-kpi-card';
+        const n = document.createElement('div');
+        n.className = 'rs-annual-kpi-num';
+        n.textContent = c.num;
+        const l = document.createElement('div');
+        l.className = 'rs-annual-kpi-label';
+        l.textContent = c.label;
+        card.append(n, l);
+        kpiWrap.appendChild(card);
+      });
+    }
+
+    // Tabela detalhada com o nome de cada atividade e a quantidade apresentada no ano
+    const byNameWrap = $('rsAnnualByNameWrap');
+    if (byNameWrap) {
+      byNameWrap.innerHTML = '';
+      if (annual.byName.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'rs-empty-box';
+        empty.textContent = `Nenhuma atividade registrada no ano de ${year}.`;
+        byNameWrap.appendChild(empty);
+      } else {
+        const table = document.createElement('table');
+        table.className = 'rs-table';
+
+        const thead = document.createElement('thead');
+        thead.innerHTML =
+          '<tr><th class="rs-annual-rank-col">#</th><th>Nome da Atividade</th><th>Área / Categoria</th><th class="rs-annual-qty-col">Qtd. no Ano</th><th>Datas Realizadas no Ano</th></tr>';
+
+        const tbody = document.createElement('tbody');
+        const total = annual.totalActivitiesYear || 1;
+        const maxCount = annual.byName[0]?.count || 1;
+
+        annual.byName.forEach((item, idx) => {
+          const tr = document.createElement('tr');
+
+          const tdRank = document.createElement('td');
+          tdRank.className = 'rs-annual-rank-col';
+          tdRank.textContent = String(idx + 1);
+
+          const tdName = document.createElement('td');
+          const nameDiv = document.createElement('div');
+          nameDiv.className = 'rs-act-title';
+          nameDiv.style.marginBottom = '0';
+          nameDiv.textContent = item.name;
+          tdName.appendChild(nameDiv);
+
+          const tdCat = document.createElement('td');
+          tdCat.className = 'rs-cat-col';
+          const tag = document.createElement('span');
+          tag.className = `cell-tag ${normalizeTagClass(item.category)}`;
+          tag.textContent = item.category;
+          tdCat.appendChild(tag);
+
+          const tdQty = document.createElement('td');
+          tdQty.className = 'rs-annual-qty-col';
+          const pct = Math.round((item.count / total) * 100);
+          const qtyWrap = document.createElement('div');
+          qtyWrap.className = 'rs-qty-wrap';
+          const pill = document.createElement('span');
+          pill.className = 'rs-qty-pill';
+          pill.textContent = `${item.count}x`;
+          const pctEl = document.createElement('span');
+          pctEl.className = 'rs-qty-pct';
+          pctEl.textContent = `${pct}%`;
+          qtyWrap.append(pill, pctEl);
+
+          const barTrack = document.createElement('div');
+          barTrack.className = 'rs-qty-bar-track';
+          const barFill = document.createElement('div');
+          barFill.className = 'rs-qty-bar-fill';
+          barFill.style.width = `${Math.max(6, Math.round((item.count / maxCount) * 100))}%`;
+          barTrack.appendChild(barFill);
+          tdQty.append(qtyWrap, barTrack);
+
+          const tdDates = document.createElement('td');
+          tdDates.className = 'rs-annual-dates';
+          tdDates.textContent = item.dates.map((dt) => dt.label).join(', ');
+
+          tr.append(tdRank, tdName, tdCat, tdQty, tdDates);
+          tbody.appendChild(tr);
+        });
+
+        const tfoot = document.createElement('tfoot');
+        const footTr = document.createElement('tr');
+        const tdTotalLabel = document.createElement('td');
+        tdTotalLabel.colSpan = 3;
+        tdTotalLabel.textContent = `TOTAL GERAL DE ATIVIDADES APRESENTADAS EM ${year} (${annual.distinctActivitiesCount} nomes distintos)`;
+        const tdTotalQty = document.createElement('td');
+        tdTotalQty.textContent = `${annual.totalActivitiesYear} atividade(s) (100%)`;
+        const tdTotalExtra = document.createElement('td');
+        tdTotalExtra.textContent = `${annual.activeMonthsCount} de 12 meses com registros`;
+        footTr.append(tdTotalLabel, tdTotalQty, tdTotalExtra);
+        tfoot.appendChild(footTr);
+
+        table.append(thead, tbody, tfoot);
+        byNameWrap.appendChild(table);
+      }
+    }
+
+    // Grade Mensal (Jan a Dez)
+    const byMonthWrap = $('rsAnnualByMonthWrap');
+    if (byMonthWrap) {
+      byMonthWrap.innerHTML = '';
+      const maxMonthCount = Math.max(1, ...annual.byMonth.map((m) => m.count));
+      annual.byMonth.forEach((mObj) => {
+        const card = document.createElement('div');
+        card.className = `rs-annual-month-card${mObj.count > 0 ? ' has-items' : ''}`;
+
+        const head = document.createElement('div');
+        head.className = 'rs-annual-month-head';
+        const mName = document.createElement('span');
+        mName.className = 'rs-annual-month-name';
+        mName.textContent = mObj.name;
+        const mCount = document.createElement('span');
+        mCount.className = 'rs-annual-month-count';
+        mCount.textContent = `${mObj.count} ativ.`;
+        head.append(mName, mCount);
+
+        const bar = document.createElement('div');
+        bar.className = 'rs-annual-month-bar';
+        const fill = document.createElement('div');
+        fill.className = 'rs-annual-month-bar-fill';
+        fill.style.width = mObj.count > 0 ? `${Math.max(8, Math.round((mObj.count / maxMonthCount) * 100))}%` : '0%';
+        bar.appendChild(fill);
+
+        const list = document.createElement('div');
+        list.className = 'rs-annual-month-list';
+        if (mObj.names.length === 0) {
+          list.textContent = 'Sem registros';
+        } else {
+          const preview = mObj.names.slice(0, 4).join(' • ');
+          list.textContent =
+            mObj.names.length > 4 ? `${preview} (+${mObj.names.length - 4})` : preview;
+        }
+
+        card.append(head, bar, list);
+        byMonthWrap.appendChild(card);
+      });
+    }
+
+    return annual;
+  }
+
+  async function openReportModal() {
     const freqSelect = $('reportAutoFreqSelect');
     if (freqSelect) freqSelect.value = getReportFreq();
     const notesInput = $('reportNotesInput');
     if (notesInput) notesInput.value = getReportSavedNotes(state.viewYear, state.viewMonth);
-    renderMonthlyReport();
     openModal('reportModal');
+    const annualWrap = $('rsAnnualByNameWrap');
+    if (annualWrap) {
+      annualWrap.innerHTML = '<div class="rs-empty-box">Carregando consolidado de atividades do ano...</div>';
+    }
+    await fetchYearDetailedForReport(state.viewYear);
+    renderMonthlyReport();
   }
 
   function renderMonthlyReport() {
@@ -2907,10 +3260,53 @@
     const month = state.viewMonth;
     const monthNameCap = MONTHS_CAP[month - 1];
     const scope = $('reportScopeSelect')?.value || 'full';
+    const isAnnualScope = scope === 'annual_full';
     const freq = $('reportAutoFreqSelect')?.value || getReportFreq();
     const adminNotes = ($('reportNotesInput')?.value || '').trim();
     const holidays = getBrazilianHolidays(year);
     const bInfo = getBusinessDaysInfo(year, month);
+
+    const yearCache =
+      state.reportYearCache && state.reportYearCache.year === year
+        ? state.reportYearCache
+        : {
+            year,
+            months: {
+              [month]: {
+                verse: state.monthData.verse || '',
+                versePinned: Boolean(state.monthData.versePinned),
+                cells: state.monthData.cells || {},
+              },
+            },
+            birthdays: state.monthBirthdays || [],
+          };
+    if (yearCache.months) {
+      yearCache.months[month] = {
+        verse: state.monthData.verse || '',
+        versePinned: Boolean(state.monthData.versePinned),
+        cells: state.monthData.cells || {},
+      };
+    }
+
+    // Títulos dinâmicos conforme escopo (Mensal ou Anual)
+    const docTitleEl = $('rsDocTitle');
+    if (docTitleEl) {
+      docTitleEl.textContent = isAnnualScope
+        ? `Relatório Anual Detalhado de Atividades e Trabalhos Realizados (${year})`
+        : 'Relatório Mensal Detalhado de Atividades e Trabalhos Realizados';
+    }
+    const sec1TitleEl = $('rsSection1Title');
+    if (sec1TitleEl) {
+      sec1TitleEl.textContent = isAnnualScope
+        ? `1. Resumo Executivo do Ano (${year})`
+        : `1. Resumo Executivo de ${monthNameCap}/${year}`;
+    }
+    const sec3TitleEl = $('rsSection3Title');
+    if (sec3TitleEl) {
+      sec3TitleEl.textContent = isAnnualScope
+        ? `4. Detalhamento Cronológico das Atividades Realizadas no Ano (${year})`
+        : `4. Detalhamento Cronológico das Atividades Realizadas em ${monthNameCap}/${year}`;
+    }
 
     // Atualiza resumo de dias úteis na barra de controles
     const todayBInfo = getBusinessDaysInfo(state.today.year, state.today.month);
@@ -2931,102 +3327,134 @@
       bdayMetaEl.textContent = `${todayPart} • ${monthPart}${statusPart}`;
     }
 
-    // Determinar dias incluídos conforme abrangência
-    let maxDay = bInfo.daysInMonth;
-    if (scope === 'upto_today') {
-      if (year === state.today.year && month === state.today.month) {
-        maxDay = state.today.day;
-      } else if (year > state.today.year || (year === state.today.year && month > state.today.month)) {
-        maxDay = 0;
-      }
-    }
+    // Meses a incluir no recorte principal
+    const monthsToScan = isAnnualScope ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] : [month];
+    let totalDaysAnalyzed = 0;
+    let totalBusinessDaysScope = 0;
+    let totalHolidayWeekdaysScope = 0;
 
     const activities = [];
     const categoryCounts = new Map();
     const teamParticipation = new Map();
+    const extraNotes = [];
     let totalSchedulesCount = 0;
     let cultosCount = 0;
     let businessDaysWithWork = 0;
     let teamAssignmentsCount = 0;
 
-    for (let d = 1; d <= maxDay; d++) {
-      const isBday = bInfo.isBusinessDay(d);
-      if (scope === 'business_only' && !isBday) continue;
+    monthsToScan.forEach((m) => {
+      const mBInfo = getBusinessDaysInfo(year, m);
+      const mData = yearCache.months?.[m] || { verse: '', cells: {} };
+      const mCells = mData.cells || {};
+      totalBusinessDaysScope += mBInfo.totalBusinessDays;
+      totalHolidayWeekdaysScope += mBInfo.holidayDays.length;
 
-      const key = `day-${d}`;
-      const cell = state.monthData.cells[key] || null;
-      const holidayName = holidays[`${month}-${d}`] || '';
-      const hasCustom = Boolean(
-        cell &&
-          (cell.title ||
-            cell.notes ||
-            cell.tag ||
-            (Array.isArray(cell.schedule) && cell.schedule.length > 0) ||
-            (Array.isArray(cell.team) && cell.team.length > 0))
-      );
-
-      if (!hasCustom && !holidayName) continue;
-
-      const dow = new Date(year, month - 1, d).getDay();
-      const category = inferReportCategory(cell, holidayName);
-      categoryCounts.set(category, (categoryCounts.get(category) || 0) + 1);
-
-      const schedList = Array.isArray(cell?.schedule) ? cell.schedule : [];
-      totalSchedulesCount += schedList.length > 0 ? schedList.length : 1;
-
-      if (isServiceActivity(cell, category)) cultosCount += 1;
-      if (isBday) businessDaysWithWork += 1;
-
-      const teamList = Array.isArray(cell?.team) ? cell.team : [];
-      teamList.forEach((member) => {
-        teamAssignmentsCount += 1;
-        const person = (member.person || '').trim();
-        const role = (member.role || '').trim();
-        const mapKey = person && role ? `${person} (${role})` : person || role;
-        if (mapKey) {
-          teamParticipation.set(mapKey, (teamParticipation.get(mapKey) || 0) + 1);
+      let maxDay = mBInfo.daysInMonth;
+      if (scope === 'upto_today') {
+        if (year === state.today.year && m === state.today.month) {
+          maxDay = state.today.day;
+        } else if (year > state.today.year || (year === state.today.year && m > state.today.month)) {
+          maxDay = 0;
         }
-      });
+      }
+      totalDaysAnalyzed += maxDay;
 
-      activities.push({
-        day: d,
-        dow,
-        isBday,
-        bdayOrdinal: bInfo.getBusinessDayOrdinal(d),
-        holidayName,
-        category,
-        cell,
-        schedList,
-        teamList,
-      });
-    }
+      for (let d = 1; d <= maxDay; d++) {
+        const isBday = mBInfo.isBusinessDay(d);
+        if (scope === 'business_only' && !isBday) continue;
 
-    // Notas extras dos quadrados complementares (pad-start / pad-end)
-    const extraNotes = [];
-    Object.entries(state.monthData.cells || {}).forEach(([key, cell]) => {
-      if (!key.startsWith('pad-')) return;
-      if (!cell || (!cell.title && !cell.notes)) return;
-      extraNotes.push({
-        title: cell.title || cell.tag || 'Nota complementar',
-        notes: cell.notes || '',
-        tag: cell.tag || '',
+        const key = `day-${d}`;
+        const cell = mCells[key] || null;
+        const holidayName = holidays[`${m}-${d}`] || '';
+        const hasCustom = Boolean(
+          cell &&
+            (cell.title ||
+              cell.notes ||
+              cell.tag ||
+              (Array.isArray(cell.schedule) && cell.schedule.length > 0) ||
+              (Array.isArray(cell.team) && cell.team.length > 0))
+        );
+
+        if (!hasCustom && !holidayName) continue;
+
+        const dow = new Date(year, m - 1, d).getDay();
+        const category = inferReportCategory(cell, holidayName);
+        categoryCounts.set(category, (categoryCounts.get(category) || 0) + 1);
+
+        const schedList = Array.isArray(cell?.schedule) ? cell.schedule : [];
+        totalSchedulesCount += schedList.length > 0 ? schedList.length : 1;
+
+        if (isServiceActivity(cell, category)) cultosCount += 1;
+        if (isBday) businessDaysWithWork += 1;
+
+        const teamList = Array.isArray(cell?.team) ? cell.team : [];
+        teamList.forEach((member) => {
+          teamAssignmentsCount += 1;
+          const person = (member.person || '').trim();
+          const role = (member.role || '').trim();
+          const mapKey = person && role ? `${person} (${role})` : person || role;
+          if (mapKey) {
+            teamParticipation.set(mapKey, (teamParticipation.get(mapKey) || 0) + 1);
+          }
+        });
+
+        activities.push({
+          month: m,
+          day: d,
+          dow,
+          isBday,
+          bdayOrdinal: mBInfo.getBusinessDayOrdinal(d),
+          holidayName,
+          category,
+          cell,
+          schedList,
+          teamList,
+        });
+      }
+
+      // Notas extras dos quadrados complementares (pad-start / pad-end)
+      Object.entries(mCells).forEach(([key, cell]) => {
+        if (!key.startsWith('pad-')) return;
+        if (!cell || (!cell.title && !cell.notes)) return;
+        extraNotes.push({
+          title: isAnnualScope
+            ? `${MONTHS_CAP[m - 1]}: ${cell.title || cell.tag || 'Nota complementar'}`
+            : cell.title || cell.tag || 'Nota complementar',
+          notes: cell.notes || '',
+          tag: cell.tag || '',
+        });
       });
     });
 
-    // Aniversariantes do mês (ordenados por dia)
-    const birthdays = [...(state.monthBirthdays || [])]
-      .filter((b) => scope !== 'upto_today' || Number(b.day) <= maxDay)
-      .filter((b) => scope !== 'business_only' || bInfo.isBusinessDay(Number(b.day)))
-      .sort((a, b) => Number(a.day) - Number(b.day) || (a.name || '').localeCompare(b.name || ''));
+    // Aniversariantes do período (ordenados por mês e dia)
+    const rawBirthdays = isAnnualScope ? yearCache.birthdays || [] : state.monthBirthdays || [];
+    const birthdays = [...rawBirthdays]
+      .filter((b) => {
+        if (isAnnualScope) return true;
+        if (scope === 'upto_today' && year === state.today.year && month === state.today.month) {
+          return Number(b.day) <= state.today.day;
+        }
+        if (scope === 'business_only') {
+          return bInfo.isBusinessDay(Number(b.day));
+        }
+        return true;
+      })
+      .sort(
+        (a, b) =>
+          (Number(a.month) || month) - (Number(b.month) || month) ||
+          Number(a.day) - Number(b.day) ||
+          (a.name || '').localeCompare(b.name || '')
+      );
 
     // 1) Cabeçalho de Metadados (#rsMetaGrid)
     const scopeLabels = {
-      full: 'Mês completo (todos os dias)',
+      full: 'Mês completo + Consolidado Anual',
       upto_today:
         year === state.today.year && month === state.today.month
           ? `Acompanhamento acumulado (01 a ${String(state.today.day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year})`
           : 'Acompanhamento até a data atual',
       business_only: 'Somente atividades em dias úteis (seg–sex)',
+      annual_full: `Consolidado anual completo (Janeiro a Dezembro de ${year})`,
     };
     const freqLabels = {
       every_business_day: 'Todo dia útil do mês',
@@ -3041,17 +3469,19 @@
     const metaGrid = $('rsMetaGrid');
     metaGrid.innerHTML = '';
     const metaItems = [
-      { label: 'Competência', val: `${monthNameCap} de ${year}` },
+      { label: 'Competência', val: isAnnualScope ? `Ano completo de ${year}` : `${monthNameCap} de ${year}` },
       { label: 'Data de Emissão', val: `${todayDateStr} às ${nowTimeStr}${emissionSuffix}` },
       { label: 'Abrangência', val: scopeLabels[scope] || scopeLabels.full },
       {
-        label: 'Dias Úteis no Mês',
-        val: `${bInfo.totalBusinessDays} dias úteis (último: ${String(bInfo.lastBusinessDay).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year})`,
+        label: isAnnualScope ? `Dias Úteis em ${year}` : 'Dias Úteis no Mês',
+        val: isAnnualScope
+          ? `${totalBusinessDaysScope} dias úteis no ano`
+          : `${bInfo.totalBusinessDays} dias úteis (último: ${String(bInfo.lastBusinessDay).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year})`,
       },
       { label: 'Responsável pela Emissão', val: state.user?.displayName || 'Administração Paroquial' },
       { label: 'Regime de Emissão', val: freqLabels[freq] || freqLabels.every_business_day },
     ];
-    if (state.monthData.verse) {
+    if (!isAnnualScope && state.monthData.verse) {
       metaItems.push({ label: 'Versículo / Lema do Mês', val: state.monthData.verse, full: true });
     }
     metaItems.forEach((item) => {
@@ -3074,7 +3504,7 @@
       {
         num: String(activities.length),
         label: 'Dias com Trabalhos / Registros',
-        sub: `de ${maxDay} dia(s) analisado(s)`,
+        sub: `de ${totalDaysAnalyzed} dia(s) analisado(s)`,
       },
       {
         num: String(totalSchedulesCount),
@@ -3087,9 +3517,9 @@
         sub: 'atos litúrgicos identificados',
       },
       {
-        num: `${businessDaysWithWork}/${bInfo.totalBusinessDays}`,
+        num: `${businessDaysWithWork}/${totalBusinessDaysScope}`,
         label: 'Dias Úteis com Atividades',
-        sub: `${bInfo.holidayDays.length} feriado(s) nacional(is) em dia útil`,
+        sub: `${totalHolidayWeekdaysScope} feriado(s) nacional(is) em dia útil`,
       },
       {
         num: String(teamAssignmentsCount),
@@ -3154,13 +3584,16 @@
       });
     }
 
+    // 3.5) Consolidado Anual Detalhado (quantidade e nome de cada atividade no ano)
+    renderAnnualSectionInReport(year, yearCache.months, holidays);
+
     // 4) Detalhamento Cronológico das Atividades (#rsActivitiesWrap)
     const actWrap = $('rsActivitiesWrap');
     actWrap.innerHTML = '';
     if (activities.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'rs-empty-box';
-      empty.textContent = 'Nenhuma atividade registrada para o recorte selecionado neste mês.';
+      empty.textContent = 'Nenhuma atividade registrada para o recorte selecionado.';
       actWrap.appendChild(empty);
     } else {
       const table = document.createElement('table');
@@ -3178,7 +3611,7 @@
         tdDate.className = 'rs-date-col';
         const dtMain = document.createElement('div');
         dtMain.className = 'rs-date-main';
-        dtMain.textContent = `${String(act.day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`;
+        dtMain.textContent = `${String(act.day).padStart(2, '0')}/${String(act.month).padStart(2, '0')}/${year}`;
         const dtSub = document.createElement('div');
         dtSub.className = 'rs-day-sub';
         dtSub.textContent = WEEKDAYS_CAP[act.dow];
@@ -3347,7 +3780,8 @@
         }
         const right = document.createElement('span');
         right.className = 'rs-chip-sub';
-        right.textContent = `Dia ${String(b.day).padStart(2, '0')}/${String(month).padStart(2, '0')}`;
+        const bMonth = Number(b.month) || month;
+        right.textContent = `Dia ${String(b.day).padStart(2, '0')}/${String(bMonth).padStart(2, '0')}`;
         chip.append(left, right);
         grid.appendChild(chip);
       });
@@ -3406,8 +3840,12 @@
     const logoImg = clone.querySelector('.rs-logo');
     if (logoImg) logoImg.setAttribute('src', logoDataUrl);
 
+    const scope = $('reportScopeSelect')?.value || 'full';
+    const isAnnualScope = scope === 'annual_full';
     const monthSlug = normalizeTextForMatch(MONTHS_CAP[state.viewMonth - 1]).replace(/[^a-z0-9]+/g, '-');
-    const titleText = `Relatório Mensal — ${MONTHS_CAP[state.viewMonth - 1]} ${state.viewYear} — Paróquia Martim Lutero`;
+    const titleText = isAnnualScope
+      ? `Relatório Anual — ${state.viewYear} — Paróquia Martim Lutero`
+      : `Relatório Mensal — ${MONTHS_CAP[state.viewMonth - 1]} ${state.viewYear} — Paróquia Martim Lutero`;
 
     const standaloneHtml = `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -3445,10 +3883,34 @@
   .rs-cat-count { font-size: 12px; color: #475569; }
   .rs-cat-bar-track { height: 7px; background: #e2e8f0; border-radius: 999px; overflow: hidden; }
   .rs-cat-bar-fill { height: 100%; background: #2563eb; }
+  .rs-annual-kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  .rs-annual-kpi-card { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 9px 11px; }
+  .rs-annual-kpi-num { font-size: 18px; font-weight: 500; color: #1e3a8a; }
+  .rs-annual-kpi-label { font-size: 11px; color: #334155; }
+  .rs-annual-rank-col { width: 34px; text-align: center; color: #64748b; }
+  .rs-annual-qty-col { width: 128px; }
+  .rs-qty-wrap { display: flex; align-items: center; gap: 6px; }
+  .rs-qty-pill { display: inline-flex; padding: 2px 7px; border-radius: 999px; background: #dbeafe; color: #1e40af; font-size: 12px; font-weight: 500; }
+  .rs-qty-pct { font-size: 11px; color: #64748b; }
+  .rs-qty-bar-track { margin-top: 4px; height: 5px; background: #e2e8f0; border-radius: 999px; overflow: hidden; }
+  .rs-qty-bar-fill { height: 100%; background: #2563eb; }
+  .rs-annual-dates { font-size: 11px; color: #475569; line-height: 1.4; }
+  .rs-annual-subhead { margin-top: 4px; font-size: 13px; font-weight: 500; color: #334155; }
+  .rs-annual-month-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  .rs-annual-month-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 10px; display: flex; flex-direction: column; gap: 5px; break-inside: avoid; }
+  .rs-annual-month-card.has-items { background: #ffffff; border-color: #bfdbfe; }
+  .rs-annual-month-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+  .rs-annual-month-name { font-size: 12px; font-weight: 500; color: #1e3a5f; }
+  .rs-annual-month-count { font-size: 11px; font-weight: 500; padding: 1px 6px; border-radius: 999px; background: #e2e8f0; color: #475569; }
+  .rs-annual-month-card.has-items .rs-annual-month-count { background: #dbeafe; color: #1e40af; }
+  .rs-annual-month-bar { height: 4px; background: #e2e8f0; border-radius: 999px; overflow: hidden; }
+  .rs-annual-month-bar-fill { height: 100%; background: #2563eb; }
+  .rs-annual-month-list { font-size: 11px; color: #475569; line-height: 1.35; }
   .rs-table { width: 100%; border-collapse: collapse; font-size: 13px; }
   .rs-table th { background: #1e3a5f; color: #ffffff; font-weight: 500; text-align: left; padding: 8px 10px; border: 1px solid #1e3a5f; font-size: 12px; }
   .rs-table td { padding: 8px 10px; border: 1px solid #cbd5e1; vertical-align: top; line-height: 1.42; }
   .rs-table tbody tr:nth-child(even) { background: #f8fafc; }
+  .rs-table tfoot td { background: #eff6ff; color: #1e3a5f; font-weight: 500; border-top: 2px solid #1e3a5f; }
   .rs-date-col { width: 118px; white-space: nowrap; }
   .rs-date-main { font-weight: 500; color: #0f172a; }
   .rs-day-sub { font-size: 11px; color: #64748b; margin-top: 2px; }
@@ -3456,7 +3918,7 @@
   .rs-day-type.is-bday { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
   .rs-day-type.is-wknd { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
   .rs-day-type.is-hol { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
-  .cell-tag { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 11px; background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
+  .cell-tag { display: inline-block; white-space: nowrap; padding: 2px 7px; border-radius: 4px; font-size: 11px; background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
   .lit-badge { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; border: 1px solid #cbd5e1; }
   .lit-branco { background: #ffffff; color: #78350f; border-color: #d97706; }
   .lit-verde { background: #ecfdf5; color: #065f46; border-color: #34d399; }
@@ -3499,11 +3961,13 @@ ${clone.outerHTML}
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `relatorio-mensal-${monthSlug}-${state.viewYear}.html`;
+    a.download = isAnnualScope
+      ? `relatorio-anual-${state.viewYear}.html`
+      : `relatorio-mensal-${monthSlug}-${state.viewYear}.html`;
     a.click();
     URL.revokeObjectURL(url);
     markReportGeneratedToday();
-    showToast('Relatório mensal baixado com a logo da igreja!', 'success');
+    showToast('Relatório baixado com o consolidado anual e a logo da igreja!', 'success');
   }
 
   // =========================

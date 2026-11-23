@@ -827,9 +827,10 @@
             <div class="field">
               <label for="reportScopeSelect">Abrangência do relatório</label>
               <select id="reportScopeSelect">
-                <option value="full">Mês completo (todos os trabalhos do mês)</option>
+                <option value="full">Mês completo + Consolidado Anual</option>
                 <option value="upto_today">Acompanhamento até hoje (dia 1 até a data atual)</option>
                 <option value="business_only">Somente atividades em dias úteis (seg–sex)</option>
+                <option value="annual_full">Relatório anual completo (todos os 12 meses do ano)</option>
               </select>
             </div>
             <div class="field">
@@ -863,14 +864,14 @@
             <div class="rs-org">
               <div class="rs-church-name">Paróquia Evangélica de Confissão Luterana — Martim Lutero</div>
               <div class="rs-church-sub">IECLB — Igreja Evangélica de Confissão Luterana no Brasil • Cacoal – RO</div>
-              <div class="rs-doc-title">Relatório Mensal Detalhado de Atividades e Trabalhos Realizados</div>
+              <div id="rsDocTitle" class="rs-doc-title">Relatório Mensal Detalhado de Atividades e Trabalhos Realizados</div>
             </div>
           </header>
 
           <section class="rs-meta-grid" id="rsMetaGrid"></section>
 
           <section class="rs-section">
-            <h3 class="rs-section-title">1. Resumo Executivo do Mês</h3>
+            <h3 id="rsSection1Title" class="rs-section-title">1. Resumo Executivo do Mês</h3>
             <div id="rsKpiGrid" class="rs-kpi-grid"></div>
           </section>
 
@@ -879,23 +880,31 @@
             <div id="rsCategoriesWrap" class="rs-categories-wrap"></div>
           </section>
 
+          <section class="rs-section" id="rsAnnualSection">
+            <h3 id="rsAnnualTitle" class="rs-section-title">3. Consolidado Anual — Quantidade e Nome de Cada Atividade Apresentada no Ano</h3>
+            <div id="rsAnnualKpiGrid" class="rs-annual-kpi-grid"></div>
+            <div id="rsAnnualByNameWrap"></div>
+            <div class="rs-annual-subhead">Distribuição por Mês no Ano (Jan a Dez)</div>
+            <div id="rsAnnualByMonthWrap" class="rs-annual-month-grid"></div>
+          </section>
+
           <section class="rs-section">
-            <h3 class="rs-section-title">3. Detalhamento Cronológico das Atividades Realizadas</h3>
+            <h3 id="rsSection3Title" class="rs-section-title">4. Detalhamento Cronológico das Atividades Realizadas</h3>
             <div id="rsActivitiesWrap"></div>
           </section>
 
           <section class="rs-section" id="rsExtraNotesSection">
-            <h3 class="rs-section-title">4. Reflexões e Notas Complementares do Mês</h3>
+            <h3 class="rs-section-title">5. Reflexões e Notas Complementares</h3>
             <div id="rsExtraNotesWrap"></div>
           </section>
 
           <section class="rs-section" id="rsTeamSection">
-            <h3 class="rs-section-title">5. Resumo de Participação da Equipe / Ministérios</h3>
+            <h3 class="rs-section-title">6. Resumo de Participação da Equipe / Ministérios</h3>
             <div id="rsTeamWrap"></div>
           </section>
 
           <section class="rs-section" id="rsBirthdaysSection">
-            <h3 class="rs-section-title">6. Aniversariantes da Comunidade no Mês</h3>
+            <h3 class="rs-section-title">7. Aniversariantes da Comunidade</h3>
             <div id="rsBirthdaysWrap"></div>
           </section>
 
