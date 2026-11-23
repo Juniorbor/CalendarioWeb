@@ -327,6 +327,19 @@
       </div>
     </div>
 
+    <!-- Aviso de Proteção Local / Banco na Nuvem (exibido apenas na nuvem quando Upstash Redis não está conectado) -->
+    <div id="cloudWarningBanner" class="cloud-warning-banner hidden no-print admin-only" role="status">
+      <div class="bdb-info">
+        <span class="cwb-badge">Proteção Local Ativa</span>
+        <span id="cloudWarningBannerText">Seus dados estão protegidos no Cofre Local deste navegador. Para sincronizar em todos os aparelhos sem depender do navegador, conecte o Banco na Nuvem (Upstash Redis gratuito) ou baixe um backup.</span>
+      </div>
+      <div class="bdb-actions">
+        <button type="button" id="cwOpenVaultBtn" class="btn btn-outline btn-xs">Cofre / Restaurar</button>
+        <button type="button" id="cwDownloadBackupBtn" class="btn btn-primary btn-xs">Baixar Backup</button>
+        <button type="button" id="cwDismissBtn" class="bdb-close" title="Ocultar aviso nesta sessão" aria-label="Ocultar aviso">✕</button>
+      </div>
+    </div>
+
     <!-- Área Ampliada da Tabela do Calendário -->
     <main class="calendar-stage">
       <section class="calendar-frame" aria-label="Tabela do Calendário Mensal">
@@ -732,6 +745,16 @@
               <span id="cloudStatusTitle">Verificando banco na nuvem...</span>
             </div>
             <p id="cloudStatusDesc" class="cloud-status-desc"></p>
+          </div>
+          <div id="vaultRecoveryBox" class="vault-box">
+            <div class="vault-head">
+              <div>
+                <h3>Cofre de Segurança Automático (Pontos de Recuperação)</h3>
+                <p id="vaultSummaryText" class="vault-sub">Cada alteração salva automaticamente uma cópia segura neste navegador (LocalStorage + IndexedDB).</p>
+              </div>
+              <button type="button" id="forceSyncVaultBtn" class="btn btn-outline btn-xs">Reenviar para o servidor</button>
+            </div>
+            <div id="vaultSnapshotsList" class="vault-list"></div>
           </div>
           <div class="backup-cards">
             <div class="backup-box">

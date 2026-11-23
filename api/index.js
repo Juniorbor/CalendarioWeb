@@ -1037,25 +1037,134 @@ module.exports = async function handler(req, res) {
       );
     }
 
+function isSeedPlaceholderCell(cell) {
+  if (!cell || typeof cell !== 'object') return false;
+  return (
+    cell.title === 'Culto Dominical' &&
+    cell.notes === 'Clique neste quadrado para editar horários e avisos.' &&
+    !cell.notesHtml &&
+    (!Array.isArray(cell.schedule) || cell.schedule.length === 0) &&
+    (!Array.isArray(cell.team) || cell.team.length === 0)
+  );
+}
+
+function getCellTs(cell) {
+  if (!cell || !cell.updatedAt) return 0;
+  const parsed = Date.parse(cell.updatedAt);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function mergeMonthsSafe(serverMonths, clientMonths, deletedCells = {}, serverUpdatedAt = 0) {
+  const merged = {};
+  const allKeys = new Set([
+    ...Object.keys(serverMonths || {}),
+    ...Object.keys(clientMonths || {}),
+  ]);
+
+  for (const mKey of allKeys) {
+    if (!/^\d{4}-\d{2}$/.test(mKey)) continue;
+    const sMonth = (serverMonths && serverMonths[mKey]) || { verse: '', versePinned: false, cells: {} };
+    const cMonth = (clientMonths && clientMonths[mKey]) || { verse: '', versePinned: false, cells: {} };
+
+    const sVerseTs = getCellTs(sMonth);
+    const cVerseTs = getCellTs(cMonth);
+    const useClientVerse =
+      (serverUpdatedAt === 0 && Boolean(cMonth.verse)) ||
+      cVerseTs > sVerseTs ||
+      (!sMonth.verse && Boolean(cMonth.verse));
+
+    const outCells = {};
+    const cellKeys = new Set([
+      ...Object.keys(sMonth.cells || {}),
+      ...Object.keys(cMonth.cells || {}),
+    ]);
+
+    for (const cKey of cellKeys) {
+      if (!isValidCellKey(cKey)) continue;
+      const sCell = sMonth.cells?.[cKey] || null;
+      const cCell = cMonth.cells?.[cKey] || null;
+      const delTs = Number(deletedCells?.[`${mKey}:${cKey}`]) || 0;
+
+      if (!sCell && cCell) {
+        if (delTs > 0 && delTs >= getCellTs(cCell)) continue;
+        outCells[cKey] = cCell;
+        continue;
+      }
+      if (sCell && !cCell) {
+        if (delTs > 0 && delTs >= getCellTs(sCell)) continue;
+        // Se servidor acabou de iniciar zerado (seed) e cliente não tem a célula, respeita exclusão se houver delTs; senão mantém
+        outCells[cKey] = sCell;
+        continue;
+      }
+      if (sCell && cCell) {
+        const sIsSeed = isSeedPlaceholderCell(sCell);
+        const cIsSeed = isSeedPlaceholderCell(cCell);
+        if (sIsSeed && !cIsSeed) {
+          outCells[cKey] = cCell;
+        } else if (!sIsSeed && cIsSeed) {
+          outCells[cKey] = sCell;
+        } else {
+          const sTs = getCellTs(sCell);
+          const cTs = getCellTs(cCell);
+          outCells[cKey] = cTs >= sTs ? cCell : sCell;
+        }
+      }
+    }
+
+    merged[mKey] = {
+      verse: useClientVerse ? cMonth.verse || '' : sMonth.verse || '',
+      versePinned: useClientVerse ? Boolean(cMonth.versePinned) : Boolean(sMonth.versePinned),
+      updatedBy: useClientVerse ? cMonth.updatedBy || sMonth.updatedBy : sMonth.updatedBy,
+      updatedAt: useClientVerse ? cMonth.updatedAt || sMonth.updatedAt : sMonth.updatedAt,
+      cells: outCells,
+    };
+  }
+  return merged;
+}
+
+function mergeBirthdaysSafe(serverList, clientList) {
+  const map = new Map();
+  for (const b of serverList || []) {
+    if (b && b.id) map.set(b.id, b);
+  }
+  for (const b of clientList || []) {
+    if (b && b.id && !map.has(b.id)) map.set(b.id, b);
+  }
+  return Array.from(map.values());
+}
+
     // POST /api/calendar/sync
     if (pathname === '/api/calendar/sync' && method === 'POST') {
       const body = await readJsonBody(req);
       const clientUpdatedAt = Number(body.updatedAt) || 0;
+      const forceRestore = Boolean(body.forceRestore);
+      const deletedCells = body.deletedCells && typeof body.deletedCells === 'object' ? body.deletedCells : {};
+
       if (
-        !IS_CLOUD_DB &&
         body.months &&
         typeof body.months === 'object' &&
-        !Array.isArray(body.months) &&
-        clientUpdatedAt > (db.updatedAt || 0)
+        !Array.isArray(body.months)
       ) {
-        db.months = body.months;
-        if (Array.isArray(body.birthdays)) db.birthdays = body.birthdays;
-        db.updatedAt = clientUpdatedAt;
-        await saveDb(db);
+        if (forceRestore) {
+          db.months = body.months;
+          if (Array.isArray(body.birthdays)) db.birthdays = body.birthdays;
+          db.updatedAt = Date.now();
+          await saveDb(db);
+        } else if (!IS_CLOUD_DB) {
+          // Mesclagem inteligente anti-perda: nunca deixa um servidor frio/vazio apagar dados preenchidos
+          db.months = mergeMonthsSafe(db.months, body.months, deletedCells, db.updatedAt || 0);
+          if (Array.isArray(body.birthdays) && body.birthdays.length > 0) {
+            db.birthdays = mergeBirthdaysSafe(db.birthdays, body.birthdays);
+          }
+          db.updatedAt = Math.max(db.updatedAt || 0, clientUpdatedAt, Date.now());
+          await saveDb(db);
+        }
       }
       return sendJson(res, 200, {
         ok: true,
         updatedAt: db.updatedAt || 0,
+        cloudDbConnected: IS_CLOUD_DB,
+        isServerless: IS_SERVERLESS,
         months: db.months,
         birthdays: db.birthdays || [],
       });
@@ -1207,6 +1316,8 @@ module.exports = async function handler(req, res) {
         cells: monthData.cells || {},
         birthdays: getBirthdaysForMonth(db, Number(calMatch[2])),
         updatedAt: db.updatedAt || 0,
+        cloudDbConnected: IS_CLOUD_DB,
+        isServerless: IS_SERVERLESS,
       });
     }
 

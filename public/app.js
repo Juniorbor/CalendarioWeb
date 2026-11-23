@@ -541,6 +541,9 @@
   const TOKEN_STORAGE_KEY = 'calendario_auth_token';
   const CRED_PROOF_STORAGE_KEY = 'calendario_cred_proof';
   const CACHE_STORAGE_KEY = 'calendario_months_cache';
+  const VAULT_SNAPSHOTS_KEY = 'calendario_vault_snapshots_v1';
+  const DELETED_CELLS_KEY = 'calendario_deleted_cells_v1';
+  const CLOUD_WARN_DISMISSED_KEY = 'calendario_cloud_warn_dismissed';
 
   function getStoredToken() {
     try {
@@ -572,6 +575,237 @@
     } catch {}
   }
 
+  // =========================
+  // COFRE DE SEGURANÇA (LOCALSTORAGE + INDEXEDDB + MESCLAGEM ANTI-PERDA)
+  // =========================
+  function openVaultIdb() {
+    return new Promise((resolve) => {
+      if (typeof indexedDB === 'undefined') return resolve(null);
+      try {
+        const req = indexedDB.open('CalendarioParoquiaVault', 1);
+        req.onupgradeneeded = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains('kv')) {
+            db.createObjectStore('kv');
+          }
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve(null);
+      } catch {
+        resolve(null);
+      }
+    });
+  }
+
+  async function idbPutVault(key, value) {
+    const db = await openVaultIdb();
+    if (!db) return;
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction('kv', 'readwrite');
+        tx.objectStore('kv').put(value, key);
+        tx.oncomplete = () => {
+          db.close();
+          resolve(true);
+        };
+        tx.onerror = () => {
+          db.close();
+          resolve(false);
+        };
+      } catch {
+        try { db.close(); } catch {}
+        resolve(false);
+      }
+    });
+  }
+
+  async function idbGetVault(key) {
+    const db = await openVaultIdb();
+    if (!db) return null;
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction('kv', 'readonly');
+        const req = tx.objectStore('kv').get(key);
+        req.onsuccess = () => {
+          const val = req.result || null;
+          db.close();
+          resolve(val);
+        };
+        req.onerror = () => {
+          db.close();
+          resolve(null);
+        };
+      } catch {
+        try { db.close(); } catch {}
+        resolve(null);
+      }
+    });
+  }
+
+  function isSeedPlaceholderCell(cell) {
+    if (!cell || typeof cell !== 'object') return false;
+    return (
+      cell.title === 'Culto Dominical' &&
+      cell.notes === 'Clique neste quadrado para editar horários e avisos.' &&
+      !cell.notesHtml &&
+      (!Array.isArray(cell.schedule) || cell.schedule.length === 0) &&
+      (!Array.isArray(cell.team) || cell.team.length === 0)
+    );
+  }
+
+  function countRealUserCells(months) {
+    let total = 0;
+    if (!months || typeof months !== 'object') return 0;
+    for (const [mKey, mObj] of Object.entries(months)) {
+      if (mKey === '2027-01') continue; // ignora mês de demonstração padrão na contagem de dados do usuário
+      const cells = mObj?.cells || {};
+      for (const cell of Object.values(cells)) {
+        if (!cell || typeof cell !== 'object') continue;
+        if (isSeedPlaceholderCell(cell)) continue;
+        const hasReal = Boolean(
+          cell.title ||
+            cell.notes ||
+            cell.notesHtml ||
+            cell.tag ||
+            (Array.isArray(cell.schedule) && cell.schedule.length > 0) ||
+            (Array.isArray(cell.team) && cell.team.length > 0) ||
+            cell.liturgicalColor ||
+            cell.cellColor
+        );
+        if (hasReal) total += 1;
+      }
+    }
+    return total;
+  }
+
+  function countAllFilledCells(months) {
+    let total = 0;
+    if (!months || typeof months !== 'object') return 0;
+    for (const mObj of Object.values(months)) {
+      const cells = mObj?.cells || {};
+      for (const cell of Object.values(cells)) {
+        if (!cell || typeof cell !== 'object') continue;
+        if (isSeedPlaceholderCell(cell)) continue;
+        total += 1;
+      }
+    }
+    return total;
+  }
+
+  function readDeletedCellsMap() {
+    try {
+      const raw = localStorage.getItem(DELETED_CELLS_KEY);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return {};
+      const cutoff = Date.now() - 1000 * 60 * 60 * 24 * 60;
+      const pruned = {};
+      for (const [k, ts] of Object.entries(parsed)) {
+        if (Number(ts) > cutoff) pruned[k] = Number(ts);
+      }
+      return pruned;
+    } catch {
+      return {};
+    }
+  }
+
+  function writeDeletedCellsMap(map) {
+    try {
+      localStorage.setItem(DELETED_CELLS_KEY, JSON.stringify(map || {}));
+    } catch {}
+  }
+
+  function recordCellDeletion(year, month, cellKey) {
+    const mKey = `${year}-${String(month).padStart(2, '0')}`;
+    const map = readDeletedCellsMap();
+    map[`${mKey}:${cellKey}`] = Date.now();
+    writeDeletedCellsMap(map);
+  }
+
+  function clearCellDeletion(year, month, cellKey) {
+    const mKey = `${year}-${String(month).padStart(2, '0')}`;
+    const map = readDeletedCellsMap();
+    if (map[`${mKey}:${cellKey}`]) {
+      delete map[`${mKey}:${cellKey}`];
+      writeDeletedCellsMap(map);
+    }
+  }
+
+  function getCellTimestampMs(cell) {
+    if (!cell || !cell.updatedAt) return 0;
+    const t = Date.parse(cell.updatedAt);
+    return Number.isFinite(t) ? t : 0;
+  }
+
+  function mergeMonthClient(serverMonth, localMonth, mKey, deletedMap = {}, serverUpdatedAt = 0) {
+    const sMonth = serverMonth || { verse: '', versePinned: false, cells: {} };
+    const lMonth = localMonth || { verse: '', versePinned: false, cells: {} };
+    const outCells = {};
+    const cellKeys = new Set([
+      ...Object.keys(sMonth.cells || {}),
+      ...Object.keys(lMonth.cells || {}),
+    ]);
+
+    for (const cKey of cellKeys) {
+      const sCell = sMonth.cells?.[cKey] || null;
+      const lCell = lMonth.cells?.[cKey] || null;
+      const delTs = Number(deletedMap[`${mKey}:${cKey}`]) || 0;
+
+      if (!sCell && lCell) {
+        if (delTs > 0 && delTs >= getCellTimestampMs(lCell)) continue;
+        outCells[cKey] = lCell;
+        continue;
+      }
+      if (sCell && !lCell) {
+        if (delTs > 0 && delTs >= getCellTimestampMs(sCell)) continue;
+        outCells[cKey] = sCell;
+        continue;
+      }
+      if (sCell && lCell) {
+        const sSeed = isSeedPlaceholderCell(sCell);
+        const lSeed = isSeedPlaceholderCell(lCell);
+        if (sSeed && !lSeed) {
+          outCells[cKey] = lCell;
+        } else if (!sSeed && lSeed) {
+          outCells[cKey] = sCell;
+        } else {
+          outCells[cKey] = getCellTimestampMs(lCell) >= getCellTimestampMs(sCell) ? lCell : sCell;
+        }
+      }
+    }
+
+    const useLocalVerse =
+      (serverUpdatedAt === 0 && Boolean(lMonth.verse)) ||
+      getCellTimestampMs(lMonth) > getCellTimestampMs(sMonth) ||
+      (!sMonth.verse && Boolean(lMonth.verse));
+
+    return {
+      verse: useLocalVerse ? lMonth.verse || '' : sMonth.verse || '',
+      versePinned: useLocalVerse ? Boolean(lMonth.versePinned) : Boolean(sMonth.versePinned),
+      updatedBy: useLocalVerse ? lMonth.updatedBy || sMonth.updatedBy : sMonth.updatedBy,
+      updatedAt: useLocalVerse ? lMonth.updatedAt || sMonth.updatedAt : sMonth.updatedAt,
+      cells: outCells,
+    };
+  }
+
+  function mergeMonthsClient(serverMonths, localMonths, deletedMap = {}, serverUpdatedAt = 0) {
+    const merged = {};
+    const allKeys = new Set([
+      ...Object.keys(serverMonths || {}),
+      ...Object.keys(localMonths || {}),
+    ]);
+    for (const mKey of allKeys) {
+      merged[mKey] = mergeMonthClient(
+        serverMonths?.[mKey],
+        localMonths?.[mKey],
+        mKey,
+        deletedMap,
+        serverUpdatedAt
+      );
+    }
+    return merged;
+  }
+
   function readCachedMonths() {
     try {
       const raw = localStorage.getItem(CACHE_STORAGE_KEY);
@@ -582,39 +816,284 @@
     return null;
   }
 
-  function writeCachedMonths(months, updatedAt, birthdays = null) {
+  function readVaultSnapshots() {
     try {
-      const prev = readCachedMonths() || {};
+      const raw = localStorage.getItem(VAULT_SNAPSHOTS_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function saveVaultSnapshot(months, updatedAt, birthdays, reason = 'Salvamento automático') {
+    if (!months || typeof months !== 'object') return;
+    const realCount = countRealUserCells(months);
+    const allCount = countAllFilledCells(months);
+    const snap = {
+      id: `snap-${Date.now()}`,
+      savedAt: Number(updatedAt) || Date.now(),
+      reason,
+      realCellsCount: realCount,
+      allCellsCount: allCount,
+      monthsCount: Object.keys(months).length,
+      months: JSON.parse(JSON.stringify(months)),
+      birthdays: Array.isArray(birthdays) ? JSON.parse(JSON.stringify(birthdays)) : [],
+    };
+
+    // Espelha no IndexedDB (sobrevive mesmo se LocalStorage ficar cheio)
+    idbPutVault('latest', snap);
+    idbGetVault('richest').then((prevRich) => {
+      if (!prevRich || realCount >= (prevRich.realCellsCount || 0)) {
+        idbPutVault('richest', snap);
+      }
+    });
+
+    try {
+      const existing = readVaultSnapshots();
+      // Encontra o ponto mais completo anterior para nunca perdê-lo na rotação
+      let richest = null;
+      for (const s of existing) {
+        if (!richest || (s.realCellsCount || 0) > (richest.realCellsCount || 0)) {
+          richest = s;
+        }
+      }
+
+      // Evita duplicar snapshots idênticos seguidos em menos de 3 segundos
+      const filtered = existing.filter((s) => Math.abs((s.savedAt || 0) - snap.savedAt) > 2500 || s.realCellsCount !== snap.realCellsCount);
+      filtered.unshift(snap);
+
+      let trimmed = filtered.slice(0, 12);
+      if (richest && (richest.realCellsCount || 0) > realCount && !trimmed.some((s) => s.id === richest.id)) {
+        trimmed.push(richest);
+      }
+      localStorage.setItem(VAULT_SNAPSHOTS_KEY, JSON.stringify(trimmed));
+    } catch {
+      // Se estourar cota de localStorage (ex.: muitas imagens customizadas), mantém ao menos os 3 mais recentes + o mais completo
+      try {
+        localStorage.setItem(VAULT_SNAPSHOTS_KEY, JSON.stringify([snap]));
+      } catch {}
+    }
+  }
+
+  function writeCachedMonths(months, updatedAt, birthdays = null, { forceReplace = false, reason = '' } = {}) {
+    if (!months || typeof months !== 'object') return;
+    const prev = readCachedMonths() || { months: {}, birthdays: [], updatedAt: 0 };
+    const prevReal = countRealUserCells(prev.months);
+    const nextReal = countRealUserCells(months);
+
+    // TRAVA ANTI-PERDA: nunca permite que uma resposta vazia/fria apague dados reais do cache local!
+    if (!forceReplace && prevReal > 0 && nextReal === 0) {
+      return;
+    }
+
+    const finalBirthdays = Array.isArray(birthdays) ? birthdays : prev.birthdays || [];
+    const finalUpdatedAt = Number(updatedAt) || Date.now();
+    try {
       localStorage.setItem(
         CACHE_STORAGE_KEY,
         JSON.stringify({
           months,
-          birthdays: Array.isArray(birthdays) ? birthdays : prev.birthdays || [],
-          updatedAt: Number(updatedAt) || Date.now(),
+          birthdays: finalBirthdays,
+          updatedAt: finalUpdatedAt,
         })
       );
     } catch {}
+
+    if (reason || nextReal > 0) {
+      saveVaultSnapshot(months, finalUpdatedAt, finalBirthdays, reason || 'Cópia automática do calendário');
+    }
   }
 
-  async function syncWithServer() {
+  async function getBestLocalVaultData() {
+    const lsMain = readCachedMonths();
+    const lsSnaps = readVaultSnapshots();
+    const idbLatest = await idbGetVault('latest');
+    const idbRichest = await idbGetVault('richest');
+
+    const candidates = [lsMain, ...lsSnaps, idbLatest, idbRichest].filter(
+      (c) => c && c.months && typeof c.months === 'object'
+    );
+    if (!candidates.length) return null;
+
+    // Prioriza o candidato que tem dados reais do usuário mais recentes (e nunca deixa um seed vazio vencer um cofre preenchido)
+    candidates.sort((a, b) => {
+      const aReal = countRealUserCells(a.months);
+      const bReal = countRealUserCells(b.months);
+      if (aReal > 0 && bReal === 0) return -1;
+      if (bReal > 0 && aReal === 0) return 1;
+      const aTs = Number(a.updatedAt || a.savedAt || 0);
+      const bTs = Number(b.updatedAt || b.savedAt || 0);
+      if (bTs !== aTs) return bTs - aTs;
+      return bReal - aReal;
+    });
+    return candidates[0];
+  }
+
+  async function syncWithServer({ forceRestore = false, explicitData = null, silent = false } = {}) {
     try {
-      const cached = readCachedMonths();
-      const body = cached && canEdit() ? cached : {};
+      const bestLocal = explicitData || (await getBestLocalVaultData());
+      const deletedCells = readDeletedCellsMap();
+      const localRealBefore = bestLocal ? countRealUserCells(bestLocal.months) : 0;
+      const body =
+        bestLocal && canEdit()
+          ? {
+              months: bestLocal.months,
+              birthdays: bestLocal.birthdays || [],
+              updatedAt: Number(bestLocal.updatedAt || bestLocal.savedAt || Date.now()),
+              deletedCells,
+              forceRestore,
+            }
+          : {};
+
       const res = await apiFetch('/api/calendar/sync', {
         method: 'POST',
         body: JSON.stringify(body),
       });
+
+      if (res && typeof res.cloudDbConnected === 'boolean') {
+        state.cloudDbConnected = res.cloudDbConnected;
+      }
+      if (res && typeof res.isServerless === 'boolean') {
+        state.isServerless = res.isServerless;
+      }
+
       if (res && res.months) {
-        writeCachedMonths(res.months, res.updatedAt || Date.now(), res.birthdays || []);
+        const serverReal = countRealUserCells(res.months);
+        let finalMonths = res.months;
+        let finalBirthdays = Array.isArray(res.birthdays) ? res.birthdays : [];
+
+        // Se modo temporário sem banco na nuvem, mescla de forma segura para nunca perder nenhum dado local
+        if (!forceRestore && !state.cloudDbConnected && bestLocal && localRealBefore > 0) {
+          finalMonths = mergeMonthsClient(res.months, bestLocal.months, deletedCells, res.updatedAt || 0);
+          if (finalBirthdays.length === 0 && Array.isArray(bestLocal.birthdays) && bestLocal.birthdays.length > 0) {
+            finalBirthdays = bestLocal.birthdays;
+          }
+        }
+
+        const mergedReal = countRealUserCells(finalMonths);
+        writeCachedMonths(finalMonths, res.updatedAt || Date.now(), finalBirthdays, {
+          forceReplace: forceRestore,
+          reason: forceRestore ? 'Restauração manual do Cofre' : 'Sincronização protegida',
+        });
+
+        // Se o servidor estava frio/zerado e resgatamos dados locais, avisa o usuário!
+        if (!silent && !forceRestore && localRealBefore > 0 && serverReal <= localRealBefore && mergedReal > 0 && state.isServerless && !state.cloudDbConnected) {
+          if (state.serverWasColdOnBoot) {
+            state.serverWasColdOnBoot = false;
+            showToast(`Cofre Local: ${mergedReal} registro(s) preservados e sincronizados!`, 'success');
+          }
+        }
       }
     } catch {}
   }
 
-  function updateLocalMonthCache(year, month, monthObj, updatedAt) {
+  function updateLocalMonthCache(year, month, monthObj, updatedAt, reason = 'Edição salva no calendário') {
     const key = `${year}-${String(month).padStart(2, '0')}`;
-    const cached = readCachedMonths() || { months: {}, updatedAt: 0 };
-    cached.months[key] = monthObj;
-    writeCachedMonths(cached.months, updatedAt || Date.now());
+    const cached = readCachedMonths() || { months: {}, birthdays: state.allBirthdays || [], updatedAt: 0 };
+    cached.months[key] = JSON.parse(JSON.stringify(monthObj));
+    writeCachedMonths(cached.months, updatedAt || Date.now(), cached.birthdays || state.allBirthdays || [], {
+      forceReplace: true,
+      reason,
+    });
+  }
+
+  function updateCloudWarningBanner() {
+    const banner = $('cloudWarningBanner');
+    if (!banner) return;
+    if (state.publicMode || !state.user || !state.isServerless || state.cloudDbConnected) {
+      banner.classList.add('hidden');
+      return;
+    }
+    try {
+      if (sessionStorage.getItem(CLOUD_WARN_DISMISSED_KEY) === '1') {
+        banner.classList.add('hidden');
+        return;
+      }
+    } catch {}
+    banner.classList.remove('hidden');
+  }
+
+  async function renderVaultSnapshotsList() {
+    const listEl = $('vaultSnapshotsList');
+    const summaryEl = $('vaultSummaryText');
+    if (!listEl) return;
+
+    const lsSnaps = readVaultSnapshots();
+    const idbRichest = await idbGetVault('richest');
+    const snaps = [...lsSnaps];
+    if (idbRichest && idbRichest.id && !snaps.some((s) => s.id === idbRichest.id)) {
+      snaps.push(idbRichest);
+    }
+    snaps.sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
+
+    let maxReal = 0;
+    snaps.forEach((s) => {
+      if ((s.realCellsCount || 0) > maxReal) maxReal = s.realCellsCount || 0;
+    });
+
+    if (summaryEl) {
+      summaryEl.textContent =
+        snaps.length > 0
+          ? `${snaps.length} ponto(s) de recuperação automáticos protegidos neste navegador (LocalStorage + IndexedDB).`
+          : 'Cada alteração salva automaticamente uma cópia segura neste navegador (LocalStorage + IndexedDB).';
+    }
+
+    listEl.innerHTML = '';
+    if (!snaps.length) {
+      const empty = document.createElement('div');
+      empty.className = 'empty-state';
+      empty.textContent = 'Nenhum ponto de recuperação salvo ainda neste navegador.';
+      listEl.appendChild(empty);
+      return;
+    }
+
+    snaps.forEach((snap) => {
+      const row = document.createElement('div');
+      row.className = 'vault-row';
+
+      const meta = document.createElement('div');
+      meta.className = 'vault-row-meta';
+
+      const title = document.createElement('div');
+      title.className = 'vault-row-title';
+      const dtStr = new Date(snap.savedAt || Date.now()).toLocaleString('pt-BR');
+      const dtSpan = document.createElement('span');
+      dtSpan.textContent = dtStr;
+      title.appendChild(dtSpan);
+
+      const pill = document.createElement('span');
+      pill.className = `vault-pill${maxReal > 0 && (snap.realCellsCount || 0) === maxReal ? ' is-richest' : ''}`;
+      pill.textContent =
+        maxReal > 0 && (snap.realCellsCount || 0) === maxReal
+          ? `${snap.realCellsCount} registro(s) • Mais completo`
+          : `${snap.realCellsCount || 0} registro(s)`;
+      title.appendChild(pill);
+
+      const sub = document.createElement('div');
+      sub.className = 'vault-row-sub';
+      sub.textContent = `${snap.reason || 'Cópia automática'} • ${snap.monthsCount || 0} mês(es)`;
+
+      meta.append(title, sub);
+
+      const restoreBtn = document.createElement('button');
+      restoreBtn.type = 'button';
+      restoreBtn.className = 'btn btn-outline btn-xs';
+      restoreBtn.textContent = 'Restaurar';
+      restoreBtn.addEventListener('click', async () => {
+        if (!window.confirm(`Restaurar o ponto salvo em ${dtStr} (${snap.realCellsCount || 0} registros)?`)) {
+          return;
+        }
+        await syncWithServer({ forceRestore: true, explicitData: snap, silent: true });
+        await loadMonth(state.viewYear, state.viewMonth);
+        renderVaultSnapshotsList();
+        showToast('Ponto de recuperação restaurado com sucesso!', 'success');
+      });
+
+      row.append(meta, restoreBtn);
+      listEl.appendChild(row);
+    });
   }
 
   async function apiFetch(url, options = {}) {
@@ -762,6 +1241,7 @@
     loadMonth(state.viewYear, state.viewMonth).then(() => {
       checkTomorrowReminder({ autoPopup: true });
       checkBusinessDayReportBanner();
+      updateCloudWarningBanner();
     });
   }
 
@@ -1145,6 +1625,8 @@
         state.user = data.user;
         state.passwordUpdatedAt = data.passwordUpdatedAt || null;
         state.cloudDbConnected = Boolean(data.cloudDbConnected);
+        state.isServerless = Boolean(data.isServerless);
+        state.serverWasColdOnBoot = Number(data.updatedAt || 0) === 0;
         if (data.serverToday) {
           state.today = data.serverToday;
           state.viewYear = data.serverToday.year;
@@ -1284,15 +1766,67 @@
 
     try {
       const data = await apiFetch(`${getCalendarApiPrefix()}/${safeYear}/${safeMonth}`);
-      state.monthData = {
+      if (typeof data.cloudDbConnected === 'boolean') state.cloudDbConnected = data.cloudDbConnected;
+      if (typeof data.isServerless === 'boolean') state.isServerless = data.isServerless;
+
+      let resolvedMonth = {
         verse: data.verse || '',
         versePinned: Boolean(data.versePinned),
         cells: data.cells || {},
       };
-      state.monthBirthdays = Array.isArray(data.birthdays) ? data.birthdays : [];
+      let resolvedBirthdays = Array.isArray(data.birthdays) ? data.birthdays : [];
+
+      // Proteção anti-perda para servidor sem banco na nuvem (ex.: container serverless frio/rotacionado)
+      if (canEdit() && !state.cloudDbConnected) {
+        const monthKey = `${safeYear}-${String(safeMonth).padStart(2, '0')}`;
+        const cached = readCachedMonths();
+        const localMonth = cached?.months?.[monthKey] || null;
+        if (localMonth) {
+          const deletedMap = readDeletedCellsMap();
+          const serverReal = countRealUserCells({ [monthKey]: resolvedMonth });
+          const localReal = countRealUserCells({ [monthKey]: localMonth });
+          const mergedMonth = mergeMonthClient(
+            resolvedMonth,
+            localMonth,
+            monthKey,
+            deletedMap,
+            Number(data.updatedAt || 0)
+          );
+          const mergedReal = countRealUserCells({ [monthKey]: mergedMonth });
+          if (Number(data.updatedAt || 0) === 0 || mergedReal > serverReal || localReal > serverReal) {
+            resolvedMonth = {
+              verse: mergedMonth.verse || '',
+              versePinned: Boolean(mergedMonth.versePinned),
+              cells: mergedMonth.cells || {},
+            };
+            // Re-envia silenciosamente o cofre local para curar a instância do servidor
+            syncWithServer({ silent: true });
+          }
+        }
+        if (resolvedBirthdays.length === 0 && Array.isArray(cached?.birthdays)) {
+          resolvedBirthdays = cached.birthdays.filter((b) => Number(b.month) === safeMonth);
+        }
+      }
+
+      state.monthData = resolvedMonth;
+      state.monthBirthdays = resolvedBirthdays;
       renderCalendar();
     } catch (err) {
-      showToast(err.message, 'error');
+      // Fallback de emergência: se houver falha temporária de rede, exibe o Cofre Local
+      const monthKey = `${safeYear}-${String(safeMonth).padStart(2, '0')}`;
+      const cached = readCachedMonths();
+      if (canEdit() && cached?.months?.[monthKey]) {
+        const localMonth = cached.months[monthKey];
+        state.monthData = {
+          verse: localMonth.verse || '',
+          versePinned: Boolean(localMonth.versePinned),
+          cells: localMonth.cells || {},
+        };
+        renderCalendar();
+        showToast('Sem conexão momentânea — exibindo cópia protegida do Cofre Local.', 'info');
+      } else {
+        showToast(err.message, 'error');
+      }
     }
   }
 
@@ -1892,9 +2426,16 @@
         method: 'POST',
         body: JSON.stringify({ updates }),
       });
+      for (const [uKey, uVal] of Object.entries(updates || {})) {
+        if (uVal && typeof uVal === 'object' && Object.values(uVal).some(Boolean)) {
+          clearCellDeletion(year, month, uKey);
+        } else {
+          recordCellDeletion(year, month, uKey);
+        }
+      }
       if (state.viewYear === year && state.viewMonth === month) {
         state.monthData.cells = res.cells || {};
-        updateLocalMonthCache(year, month, state.monthData, res.updatedAt);
+        updateLocalMonthCache(year, month, state.monthData, res.updatedAt, 'Atualização em lote no calendário');
         renderCalendar();
       }
       const tInfo = getTomorrowInfo();
@@ -2363,10 +2904,18 @@
       });
       if (res.cell) {
         state.monthData.cells[key] = res.cell;
+        clearCellDeletion(state.viewYear, state.viewMonth, key);
       } else {
         delete state.monthData.cells[key];
+        recordCellDeletion(state.viewYear, state.viewMonth, key);
       }
-      updateLocalMonthCache(state.viewYear, state.viewMonth, state.monthData, res.updatedAt);
+      updateLocalMonthCache(
+        state.viewYear,
+        state.viewMonth,
+        state.monthData,
+        res.updatedAt,
+        clearAll ? `Limpeza de quadrado (${key})` : `Edição salva (${key})`
+      );
       renderCalendar();
       state.cellModalDirty = false;
       closeModal('cellModal', true);
@@ -3019,7 +3568,7 @@
     $('envHashBox').classList.remove('hidden');
   }
 
-  function openSecurityModal() {
+  function openSecurityModal(initialTab = 'tabPassword') {
     $('secUsername').value = state.user?.username || 'admin';
     $('secDisplayName').value = state.user?.displayName || 'Administrador';
     $('curPass').value = '';
@@ -3039,10 +3588,11 @@
         : 'Banco na Nuvem Pronto para Conectar (Upstash Redis / Vercel KV)';
       $('cloudStatusDesc').textContent = state.cloudDbConnected
         ? 'Todos os meses, aniversariantes, escalas e a senha do administrador estão sincronizados automaticamente entre computador, celular e link da comunidade.'
-        : 'O código já está 100% pronto! Para sincronizar automaticamente entre vários aparelhos na Vercel: abra o projeto calendario-web na Vercel → aba Storage → Create Database → Upstash Redis (gratuito) e clique em Connect Project.';
+        : 'O código já está 100% pronto! Para salvar permanentemente na nuvem em todos os aparelhos: abra o projeto calendario-web na Vercel → aba Storage → Create Database → Upstash Redis (gratuito) e clique em Connect Project.';
     }
 
-    switchTab('tabPassword');
+    renderVaultSnapshotsList();
+    switchTab(initialTab === 'tabBackup' ? 'tabBackup' : 'tabPassword');
     openModal('securityModal');
   }
 
@@ -3263,6 +3813,16 @@
     try {
       const res = await apiFetch(`/api/calendar/year/${year}?detailed=1`);
       const months = res.months || {};
+      const cached = !state.cloudDbConnected ? readCachedMonths() : null;
+      const deletedMap = !state.cloudDbConnected ? readDeletedCellsMap() : {};
+      if (cached && cached.months) {
+        for (let m = 1; m <= 12; m++) {
+          const mKey = `${year}-${String(m).padStart(2, '0')}`;
+          if (cached.months[mKey]) {
+            months[m] = mergeMonthClient(months[m], cached.months[mKey], mKey, deletedMap, 0);
+          }
+        }
+      }
       if (state.viewYear === year) {
         months[state.viewMonth] = {
           verse: state.monthData.verse || '',
@@ -3273,7 +3833,10 @@
       state.reportYearCache = {
         year,
         months,
-        birthdays: Array.isArray(res.birthdays) ? res.birthdays : state.allBirthdays || [],
+        birthdays:
+          Array.isArray(res.birthdays) && res.birthdays.length > 0
+            ? res.birthdays
+            : cached?.birthdays || state.allBirthdays || [],
       };
       return state.reportYearCache;
     } catch {
@@ -4811,7 +5374,7 @@ ${clone.outerHTML}
     });
 
     // Segurança do Administrador & Backup
-    $('openSecurityBtn').addEventListener('click', openSecurityModal);
+    $('openSecurityBtn').addEventListener('click', () => openSecurityModal('tabPassword'));
 
     document.querySelectorAll('.tab-btn').forEach((btn) => {
       btn.addEventListener('click', () => switchTab(btn.dataset.tab));
@@ -4897,20 +5460,54 @@ ${clone.outerHTML}
       }
     });
 
-    $('exportBackupBtn').addEventListener('click', async () => {
+    async function triggerBackupDownload() {
       try {
-        const data = await apiFetch('/api/backup');
+        let data = await apiFetch('/api/backup').catch(() => ({
+          exportedAt: new Date().toISOString(),
+          exportedBy: state.user?.username || 'admin',
+          months: {},
+          birthdays: [],
+        }));
+        const bestLocal = await getBestLocalVaultData();
+        if (bestLocal && bestLocal.months) {
+          data.months = mergeMonthsClient(data.months || {}, bestLocal.months, readDeletedCellsMap(), 0);
+          if ((!data.birthdays || data.birthdays.length === 0) && Array.isArray(bestLocal.birthdays)) {
+            data.birthdays = bestLocal.birthdays;
+          }
+        }
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `backup-calendario-${state.today.year}-${String(state.today.month).padStart(2, '0')}.json`;
+        a.download = `backup-calendario-${state.today.year}-${String(state.today.month).padStart(2, '0')}-${String(state.today.day).padStart(2, '0')}.json`;
         a.click();
         URL.revokeObjectURL(url);
-        showToast('Backup baixado com sucesso!', 'success');
+        showToast('Backup completo baixado com sucesso!', 'success');
       } catch (err) {
         showToast(err.message, 'error');
       }
+    }
+
+    $('exportBackupBtn').addEventListener('click', triggerBackupDownload);
+
+    $('cwOpenVaultBtn')?.addEventListener('click', () => openSecurityModal('tabBackup'));
+    $('cwDownloadBackupBtn')?.addEventListener('click', triggerBackupDownload);
+    $('cwDismissBtn')?.addEventListener('click', () => {
+      try {
+        sessionStorage.setItem(CLOUD_WARN_DISMISSED_KEY, '1');
+      } catch {}
+      $('cloudWarningBanner')?.classList.add('hidden');
+    });
+    $('forceSyncVaultBtn')?.addEventListener('click', async () => {
+      const best = await getBestLocalVaultData();
+      if (!best) {
+        showToast('Nenhum dado encontrado no Cofre Local deste navegador.', 'info');
+        return;
+      }
+      await syncWithServer({ forceRestore: true, explicitData: best, silent: true });
+      await loadMonth(state.viewYear, state.viewMonth);
+      renderVaultSnapshotsList();
+      showToast('Cofre Local reenviado e sincronizado com o servidor!', 'success');
     });
 
     $('restoreBackupBtn').addEventListener('click', async () => {
@@ -4929,8 +5526,14 @@ ${clone.outerHTML}
           method: 'POST',
           body: JSON.stringify(json),
         });
-        if (json.months) writeCachedMonths(json.months, res.updatedAt || Date.now());
+        if (json.months) {
+          writeCachedMonths(json.months, res.updatedAt || Date.now(), json.birthdays || [], {
+            forceReplace: true,
+            reason: 'Backup .json restaurado',
+          });
+        }
         showToast('Backup restaurado com sucesso!', 'success');
+        renderVaultSnapshotsList();
         loadMonth(state.viewYear, state.viewMonth);
       } catch (err) {
         showToast(err.message || 'Erro ao ler o arquivo de backup.', 'error');
