@@ -141,21 +141,15 @@
     if (cellData && cellData.customImage) {
       return { src: cellData.customImage, alt: cellData.title || fallbackText || 'Imagem do tema' };
     }
-    if (cellData && cellData.themeImage === 'none') {
-      return null;
-    }
-    if (cellData && cellData.themeImage && THEME_LABELS[cellData.themeImage]) {
+    if (
+      cellData &&
+      cellData.themeImage &&
+      cellData.themeImage !== 'none' &&
+      THEME_LABELS[cellData.themeImage]
+    ) {
       return {
         src: `/images/themes/${cellData.themeImage}.svg`,
         alt: THEME_LABELS[cellData.themeImage],
-      };
-    }
-    const combined = `${cellData?.title || ''} ${cellData?.tag || ''} ${fallbackText || ''}`;
-    const detected = detectThemeKey(combined);
-    if (detected && THEME_LABELS[detected]) {
-      return {
-        src: `/images/themes/${detected}.svg`,
-        alt: THEME_LABELS[detected],
       };
     }
     return null;
@@ -2183,6 +2177,16 @@
     const logoImg = clone.querySelector('.print-parish-logo');
     if (logoImg) logoImg.setAttribute('src', logoDataUrl);
 
+    // Garante carregamento imediato (sem lazy) de todas as miniaturas escolhidas pelo usuário
+    const origin = window.location.origin;
+    clone.querySelectorAll('img').forEach((imgEl) => {
+      imgEl.removeAttribute('loading');
+      const srcVal = imgEl.getAttribute('src') || '';
+      if (srcVal.startsWith('/')) {
+        imgEl.setAttribute('src', `${origin}${srcVal}`);
+      }
+    });
+
     const prevFrame = $('calendarPrintFrame');
     if (prevFrame) prevFrame.remove();
 
@@ -2209,7 +2213,6 @@
     }
 
     const monthNameCap = MONTHS_CAP[state.viewMonth - 1];
-    const origin = window.location.origin;
     const printHtml = `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -2250,12 +2253,21 @@ ${clone.outerHTML}
     };
 
     iframe.onload = () => {
-      const fontsReady = iframe.contentWindow?.document?.fonts?.ready;
-      if (fontsReady && typeof fontsReady.then === 'function') {
-        fontsReady.then(() => setTimeout(finishAndPrint, 100)).catch(() => finishAndPrint());
-      } else {
-        setTimeout(finishAndPrint, 160);
-      }
+      const iDoc = iframe.contentWindow?.document;
+      const imgs = iDoc ? Array.from(iDoc.querySelectorAll('img')) : [];
+      const imgPromises = imgs.map(
+        (img) =>
+          img.complete
+            ? Promise.resolve()
+            : new Promise((res) => {
+                img.addEventListener('load', res, { once: true });
+                img.addEventListener('error', res, { once: true });
+              })
+      );
+      const fontsReady = iDoc?.fonts?.ready || Promise.resolve();
+      Promise.all([fontsReady, ...imgPromises])
+        .then(() => setTimeout(finishAndPrint, 90))
+        .catch(() => finishAndPrint());
     };
 
     frameDoc.open();
@@ -2834,7 +2846,7 @@ ${clone.outerHTML}
   }
 
   function setSelectedThemeImage(val) {
-    state.selectedThemeImage = val || '';
+    state.selectedThemeImage = val === 'none' ? '' : val || '';
     document.querySelectorAll('#themeImagePicker .theme-opt').forEach((btn) => {
       btn.classList.toggle('selected', !state.customImageData && btn.dataset.theme === state.selectedThemeImage);
     });

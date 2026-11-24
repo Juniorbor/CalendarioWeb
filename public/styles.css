@@ -4154,6 +4154,19 @@ body.calendar-print-doc .cell-holiday-auto {
 body.calendar-print-doc .theme-thumb {
   width: calc(18px * var(--fit-scale, 1)) !important;
   height: calc(18px * var(--fit-scale, 1)) !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+body.calendar-print-doc .theme-thumb-top {
+  width: 16px !important;
+  height: 16px !important;
+  min-width: 16px !important;
+  min-height: 16px !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
 }
 
 body.calendar-print-doc .theme-thumb-sm {
@@ -4319,9 +4332,16 @@ body.calendar-print-doc .theme-thumb-sm {
     line-height: 1.18 !important;
   }
 
+  .theme-thumb,
   .theme-thumb-top {
-    width: 15px !important;
-    height: 15px !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+
+  .theme-thumb-top {
+    width: 16px !important;
+    height: 16px !important;
   }
 
   .cell-body {
