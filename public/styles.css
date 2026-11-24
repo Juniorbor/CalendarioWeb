@@ -947,11 +947,11 @@ body {
   height: 190px;
   min-height: 190px;
   max-height: 190px;
-  padding: 10px 12px;
+  padding: 9px 9px;
   background: #ffffff;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
   position: relative;
   transition: background-color 0.12s ease, box-shadow 0.12s ease;
   cursor: pointer;
@@ -1079,7 +1079,7 @@ body {
   flex-wrap: nowrap;
   align-items: flex-start;
   justify-content: flex-start;
-  gap: 6px;
+  gap: 4px;
 }
 
 .cell-top-row .lit-badge {
@@ -1096,7 +1096,7 @@ body {
 }
 
 .cell-day-num {
-  font-size: 1.18rem;
+  font-size: 1.08rem;
   font-weight: 500;
   color: var(--text-main);
   line-height: 1.1;
@@ -1109,18 +1109,18 @@ body {
 .cell-top-title {
   flex: 1;
   min-width: 0;
-  font-size: 0.9rem;
+  font-size: 0.78rem;
   font-weight: 500;
-  line-height: 1.24;
+  line-height: 1.18;
   color: var(--text-main);
   overflow-wrap: break-word;
-  hyphens: auto;
+  hyphens: none;
   padding-top: 1px;
 }
 
 .theme-thumb-top {
-  width: 22px;
-  height: 22px;
+  width: 19px;
+  height: 19px;
   border-radius: 5px;
   margin-top: 1px;
 }
@@ -3940,6 +3940,228 @@ body {
 }
 
 /* =========================
+   MODO IMPRESSÃO LIMPA DO CALENDÁRIO (A4 PAISAGEM — 1 FOLHA PERFEITA)
+   ========================= */
+body.calendar-print-doc {
+  background: #ffffff !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
+}
+
+body.calendar-print-doc .calendar-frame {
+  box-shadow: none !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  border-radius: 4px !important;
+  border: 1.5px solid #94a3b8 !important;
+  overflow: hidden !important;
+}
+
+body.calendar-print-doc .print-parish-header {
+  display: flex !important;
+  padding: 6px 14px !important;
+  gap: 10px !important;
+  border-bottom: 1px solid #cbd5e1 !important;
+}
+
+body.calendar-print-doc .print-parish-logo {
+  width: 36px !important;
+  height: 36px !important;
+}
+
+body.calendar-print-doc .print-parish-name {
+  font-size: 14.5px !important;
+  line-height: 1.2 !important;
+}
+
+body.calendar-print-doc .print-parish-sub {
+  font-size: 10.5px !important;
+}
+
+body.calendar-print-doc .cal-top-header {
+  gap: 0 !important;
+  background: #1e3a5f !important;
+  border-bottom: 1px solid #94a3b8 !important;
+}
+
+body.calendar-print-doc .cal-month-box,
+body.calendar-print-doc .cal-year-box {
+  padding: 7px 8px !important;
+  font-size: 15px !important;
+}
+
+body.calendar-print-doc .cal-verse-box {
+  padding: 6px 12px !important;
+  border-left: 1px solid #cbd5e1 !important;
+  border-right: 1px solid #cbd5e1 !important;
+}
+
+body.calendar-print-doc .cal-verse-text {
+  font-size: 13px !important;
+  line-height: 1.25 !important;
+}
+
+body.calendar-print-doc .verse-edit-badge,
+body.calendar-print-doc .cell-hover-hint,
+body.calendar-print-doc .today-pill,
+body.calendar-print-doc .agenda-list {
+  display: none !important;
+}
+
+body.calendar-print-doc .cal-weekdays {
+  display: grid !important;
+  gap: 0 !important;
+  border-bottom: 1px solid #94a3b8 !important;
+}
+
+body.calendar-print-doc .cal-weekday {
+  padding: 5px 4px !important;
+  font-size: 11px !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.25) !important;
+}
+
+body.calendar-print-doc .cal-weekday:last-child {
+  border-right: none !important;
+}
+
+body.calendar-print-doc .cal-grid {
+  display: grid !important;
+  gap: 0 !important;
+  background: #ffffff !important;
+  grid-auto-rows: 120px !important;
+}
+
+body.calendar-print-doc .cal-grid[data-rows="4"] {
+  grid-auto-rows: 150px !important;
+}
+
+body.calendar-print-doc .cal-grid[data-rows="5"] {
+  grid-auto-rows: 120px !important;
+}
+
+body.calendar-print-doc .cal-grid[data-rows="6"] {
+  grid-auto-rows: 100px !important;
+}
+
+body.calendar-print-doc .cal-cell {
+  height: 120px !important;
+  min-height: 120px !important;
+  max-height: 120px !important;
+  padding: 5px 6px !important;
+  gap: 3px !important;
+  border-right: 1px solid #cbd5e1 !important;
+  border-bottom: 1px solid #cbd5e1 !important;
+  box-shadow: none !important;
+  overflow: hidden !important;
+  break-inside: avoid !important;
+}
+
+body.calendar-print-doc .cal-grid[data-rows="4"] .cal-cell {
+  height: 150px !important;
+  min-height: 150px !important;
+  max-height: 150px !important;
+}
+
+body.calendar-print-doc .cal-grid[data-rows="6"] .cal-cell {
+  height: 100px !important;
+  min-height: 100px !important;
+  max-height: 100px !important;
+}
+
+body.calendar-print-doc .cal-cell:nth-child(7n) {
+  border-right: none !important;
+}
+
+body.calendar-print-doc .cal-cell.is-today {
+  box-shadow: none !important;
+  background: #ffffff !important;
+}
+
+body.calendar-print-doc .cal-cell.is-today.col-sun {
+  background: #eff6ff !important;
+}
+
+body.calendar-print-doc .cal-cell.is-today.col-sat {
+  background: #f8fafc !important;
+}
+
+body.calendar-print-doc .cell-top-row {
+  gap: 4px !important;
+  padding-bottom: 3px !important;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.45) !important;
+}
+
+body.calendar-print-doc .cell-day-num {
+  font-size: 13.5px !important;
+  line-height: 1.1 !important;
+}
+
+body.calendar-print-doc .cell-top-title {
+  font-size: 11px !important;
+  line-height: 1.18 !important;
+  padding-top: 1px !important;
+  hyphens: none !important;
+}
+
+body.calendar-print-doc .theme-thumb-top {
+  width: 15px !important;
+  height: 15px !important;
+  min-width: 15px !important;
+  min-height: 15px !important;
+}
+
+body.calendar-print-doc .cell-body {
+  gap: calc(3px * var(--fit-scale, 1)) !important;
+}
+
+body.calendar-print-doc .cell-tag {
+  font-size: calc(9.5px * var(--fit-scale, 1)) !important;
+  padding: calc(1px * var(--fit-scale, 1)) calc(5px * var(--fit-scale, 1)) !important;
+}
+
+body.calendar-print-doc .cell-badges-row .lit-badge,
+body.calendar-print-doc .cell-top-row .lit-badge {
+  font-size: calc(9.5px * var(--fit-scale, 1)) !important;
+  padding: calc(1px * var(--fit-scale, 1)) calc(5px * var(--fit-scale, 1)) !important;
+}
+
+body.calendar-print-doc .cell-title {
+  font-size: calc(11.5px * var(--fit-scale, 1)) !important;
+  line-height: 1.2 !important;
+}
+
+body.calendar-print-doc .cell-notes,
+body.calendar-print-doc .quote-text {
+  font-size: calc(11.5px * var(--fit-scale, 1)) !important;
+  line-height: 1.28 !important;
+  hyphens: none !important;
+}
+
+body.calendar-print-doc .cell-sched-row,
+body.calendar-print-doc .cell-team-row,
+body.calendar-print-doc .cell-birthday-line {
+  font-size: calc(10.5px * var(--fit-scale, 1)) !important;
+  line-height: 1.22 !important;
+}
+
+body.calendar-print-doc .cell-holiday-auto {
+  margin-top: 2px !important;
+  font-size: calc(10px * var(--fit-scale, 1)) !important;
+  padding: calc(2.5px * var(--fit-scale, 1)) calc(5px * var(--fit-scale, 1)) !important;
+}
+
+body.calendar-print-doc .theme-thumb {
+  width: calc(18px * var(--fit-scale, 1)) !important;
+  height: calc(18px * var(--fit-scale, 1)) !important;
+}
+
+body.calendar-print-doc .theme-thumb-sm {
+  width: calc(15px * var(--fit-scale, 1)) !important;
+  height: calc(15px * var(--fit-scale, 1)) !important;
+}
+
+/* =========================
    IMPRESSÃO PAISAGEM LIMPA (CALENDÁRIO) & RETRATO (RELATÓRIO)
    ========================= */
 @page reportPage {
@@ -3950,7 +4172,7 @@ body {
 @media print {
   @page {
     size: A4 landscape;
-    margin: 7mm;
+    margin: 6mm;
   }
 
   * {
@@ -3966,12 +4188,28 @@ body {
   .modal-backdrop,
   .toast,
   .cell-hover-hint,
-  .verse-edit-badge {
+  .verse-edit-badge,
+  .today-pill {
     display: none !important;
   }
 
   .print-parish-header {
     display: flex !important;
+    padding: 6px 14px !important;
+    gap: 10px !important;
+  }
+
+  .print-parish-logo {
+    width: 36px !important;
+    height: 36px !important;
+  }
+
+  .print-parish-name {
+    font-size: 14.5px !important;
+  }
+
+  .print-parish-sub {
+    font-size: 10.5px !important;
   }
 
   .calendar-stage {
@@ -3981,29 +4219,130 @@ body {
   .calendar-frame {
     box-shadow: none !important;
     width: 100% !important;
-    border-radius: 0 !important;
+    border-radius: 4px !important;
+    border: 1.5px solid #94a3b8 !important;
     min-width: 0 !important;
   }
 
+  .cal-top-header {
+    gap: 0 !important;
+    border-bottom: 1px solid #94a3b8 !important;
+  }
+
+  .cal-month-box,
+  .cal-year-box {
+    padding: 7px 8px !important;
+    font-size: 15px !important;
+  }
+
+  .cal-verse-box {
+    padding: 6px 12px !important;
+  }
+
+  .cal-verse-text {
+    font-size: 13px !important;
+  }
+
+  .cal-weekdays {
+    display: grid !important;
+    gap: 0 !important;
+    border-bottom: 1px solid #94a3b8 !important;
+  }
+
+  .cal-weekday {
+    padding: 5px 4px !important;
+    font-size: 11px !important;
+  }
+
+  .agenda-list {
+    display: none !important;
+  }
+
   .cal-grid {
-    grid-auto-rows: 104px !important;
+    display: grid !important;
+    gap: 0 !important;
+    background: #ffffff !important;
+    grid-auto-rows: 120px !important;
+  }
+
+  .cal-grid[data-rows="4"] {
+    grid-auto-rows: 150px !important;
+  }
+
+  .cal-grid[data-rows="6"] {
+    grid-auto-rows: 100px !important;
   }
 
   .cal-cell {
-    height: 104px !important;
-    min-height: 104px !important;
-    max-height: 104px !important;
+    height: 120px !important;
+    min-height: 120px !important;
+    max-height: 120px !important;
+    padding: 5px 6px !important;
+    gap: 3px !important;
+    border-right: 1px solid #cbd5e1 !important;
+    border-bottom: 1px solid #cbd5e1 !important;
+    box-shadow: none !important;
     break-inside: avoid;
   }
 
+  .cal-grid[data-rows="4"] .cal-cell {
+    height: 150px !important;
+    min-height: 150px !important;
+    max-height: 150px !important;
+  }
+
+  .cal-grid[data-rows="6"] .cal-cell {
+    height: 100px !important;
+    min-height: 100px !important;
+    max-height: 100px !important;
+  }
+
+  .cal-cell:nth-child(7n) {
+    border-right: none !important;
+  }
+
+  .cal-cell.is-today {
+    box-shadow: none !important;
+  }
+
+  .cell-top-row {
+    gap: 4px !important;
+    padding-bottom: 3px !important;
+  }
+
+  .cell-day-num {
+    font-size: 13.5px !important;
+  }
+
   .cell-top-title {
-    font-size: 0.76rem !important;
-    line-height: 1.15 !important;
+    font-size: 11px !important;
+    line-height: 1.18 !important;
   }
 
   .theme-thumb-top {
-    width: 16px !important;
-    height: 16px !important;
+    width: 15px !important;
+    height: 15px !important;
+  }
+
+  .cell-body {
+    gap: calc(3px * var(--fit-scale, 1)) !important;
+  }
+
+  .cell-notes,
+  .quote-text {
+    font-size: calc(11.5px * var(--fit-scale, 1)) !important;
+    line-height: 1.28 !important;
+  }
+
+  .cell-tag {
+    font-size: calc(9.5px * var(--fit-scale, 1)) !important;
+    padding: calc(1px * var(--fit-scale, 1)) calc(5px * var(--fit-scale, 1)) !important;
+  }
+
+  .cell-holiday-auto {
+    margin-top: 2px !important;
+    font-size: calc(10px * var(--fit-scale, 1)) !important;
+    padding: calc(2.5px * var(--fit-scale, 1)) calc(5px * var(--fit-scale, 1)) !important;
   }
 
   /* Modo de impressão exclusivo do Relatório Mensal em A4 Retrato (fallback para Ctrl+P) */

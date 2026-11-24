@@ -2050,10 +2050,12 @@
     const daysInMonth = new Date(year, month, 0).getDate();
     const totalUsed = firstDayDow + daysInMonth;
     const trailingPads = (7 - (totalUsed % 7)) % 7;
+    const totalRows = Math.ceil((totalUsed + trailingPads) / 7);
     const holidays = getBrazilianHolidays(year);
 
     const grid = $('calGrid');
     grid.innerHTML = '';
+    grid.dataset.rows = String(totalRows);
 
     // 1. Quadrados iniciais antes do dia 1 (editáveis para citações/notas)
     for (let i = 0; i < firstDayDow; i++) {
@@ -2116,16 +2118,16 @@
     requestAnimationFrame(() => fitAllCellTexts());
   }
 
-  function fitCellText(bodyEl) {
+  function fitCellText(bodyEl, minScale = 0.34) {
     if (!bodyEl || !bodyEl.childElementCount) return;
     bodyEl.style.setProperty('--fit-scale', '1');
     if (bodyEl.scrollHeight <= bodyEl.clientHeight + 1 && bodyEl.scrollWidth <= bodyEl.clientWidth + 1) {
       return;
     }
-    let low = 0.42;
+    let low = minScale;
     let high = 1.0;
     let best = low;
-    for (let i = 0; i < 9; i++) {
+    for (let i = 0; i < 10; i++) {
       const mid = (low + high) / 2;
       bodyEl.style.setProperty('--fit-scale', mid.toFixed(3));
       if (bodyEl.scrollHeight <= bodyEl.clientHeight + 1 && bodyEl.scrollWidth <= bodyEl.clientWidth + 1) {
@@ -2138,10 +2140,129 @@
     bodyEl.style.setProperty('--fit-scale', best.toFixed(3));
   }
 
+  function fitAllCellTextsInRoot(rootEl, isPrint = false) {
+    if (!rootEl) return;
+    rootEl.querySelectorAll('.cal-cell').forEach((cellEl) => {
+      if (isPrint) {
+        const topRow = cellEl.querySelector('.cell-top-row');
+        const topTitle = cellEl.querySelector('.cell-top-title');
+        if (topRow && topTitle && cellEl.clientHeight > 0 && topRow.offsetHeight > cellEl.clientHeight * 0.36) {
+          topTitle.style.fontSize = '9.8px';
+          topTitle.style.lineHeight = '1.12';
+        }
+      }
+      const bodyEl = cellEl.querySelector('.cell-body');
+      if (bodyEl) fitCellText(bodyEl, 0.34);
+    });
+  }
+
   function fitAllCellTexts() {
     const grid = $('calGrid');
     if (!grid) return;
-    grid.querySelectorAll('.cell-body').forEach((bodyEl) => fitCellText(bodyEl));
+    fitAllCellTextsInRoot(grid, document.body.classList.contains('calendar-print-doc'));
+  }
+
+  async function printCalendarClean() {
+    stopVerseRotation();
+    const frame = document.querySelector('.calendar-frame');
+    if (!frame) {
+      window.print();
+      return;
+    }
+
+    const logoDataUrl = await getParishLogoDataUrl();
+    const clone = frame.cloneNode(true);
+    clone.classList.remove('agenda-mode');
+    const cloneWd = clone.querySelector('#calWeekdays');
+    const cloneGrid = clone.querySelector('#calGrid');
+    const cloneAgenda = clone.querySelector('#agendaListView');
+    if (cloneWd) cloneWd.classList.remove('hidden');
+    if (cloneGrid) cloneGrid.classList.remove('hidden');
+    if (cloneAgenda) cloneAgenda.remove();
+
+    const logoImg = clone.querySelector('.print-parish-logo');
+    if (logoImg) logoImg.setAttribute('src', logoDataUrl);
+
+    const prevFrame = $('calendarPrintFrame');
+    if (prevFrame) prevFrame.remove();
+
+    // Iframe com largura exata da folha A4 Paisagem (285mm úteis = 1076px) para calcular ajuste perfeito de fontes sem cortar texto
+    const iframe = document.createElement('iframe');
+    iframe.id = 'calendarPrintFrame';
+    iframe.setAttribute('aria-hidden', 'true');
+    iframe.style.position = 'fixed';
+    iframe.style.left = '-9999px';
+    iframe.style.top = '0';
+    iframe.style.width = '1076px';
+    iframe.style.height = '748px';
+    iframe.style.border = '0';
+    iframe.style.visibility = 'hidden';
+    document.body.appendChild(iframe);
+
+    const frameDoc = iframe.contentWindow?.document;
+    if (!frameDoc) {
+      iframe.remove();
+      document.body.classList.add('calendar-print-doc');
+      fitAllCellTexts();
+      window.print();
+      return;
+    }
+
+    const monthNameCap = MONTHS_CAP[state.viewMonth - 1];
+    const origin = window.location.origin;
+    const printHtml = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<title>Calendário — ${monthNameCap} ${state.viewYear} — Paróquia Martim Lutero</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="${origin}/styles.css" />
+<style>
+  @page { size: A4 landscape; margin: 6mm; }
+  html, body { width: 100%; margin: 0; padding: 0; background: #ffffff; }
+</style>
+</head>
+<body class="calendar-print-doc">
+${clone.outerHTML}
+</body>
+</html>`;
+
+    let printed = false;
+    const finishAndPrint = () => {
+      if (printed) return;
+      printed = true;
+      try {
+        const iDoc = iframe.contentWindow.document;
+        fitAllCellTextsInRoot(iDoc.querySelector('#calGrid'), true);
+        // Segunda passada após ajuste de títulos longos
+        setTimeout(() => {
+          fitAllCellTextsInRoot(iDoc.querySelector('#calGrid'), true);
+          iframe.contentWindow.focus();
+          iframe.contentWindow.print();
+          startVerseRotation();
+        }, 80);
+      } catch {
+        startVerseRotation();
+        window.print();
+      }
+    };
+
+    iframe.onload = () => {
+      const fontsReady = iframe.contentWindow?.document?.fonts?.ready;
+      if (fontsReady && typeof fontsReady.then === 'function') {
+        fontsReady.then(() => setTimeout(finishAndPrint, 100)).catch(() => finishAndPrint());
+      } else {
+        setTimeout(finishAndPrint, 160);
+      }
+    };
+
+    frameDoc.open();
+    frameDoc.write(printHtml);
+    frameDoc.close();
+    // Fallback caso onload não dispare em algum navegador
+    setTimeout(finishAndPrint, 1000);
   }
 
   function buildCellElement({ cellKey, dow, dayNum, isPad, holidayName, cellData }) {
@@ -2189,7 +2310,7 @@
       dayWrap.appendChild(numSpan);
     }
 
-    if (isToday) {
+    if (isToday && !putTitleNextToDate) {
       const todayBadge = document.createElement('span');
       todayBadge.className = 'today-pill';
       todayBadge.textContent = 'HOJE';
@@ -2232,9 +2353,16 @@
       const hasLitInBody = Boolean(
         putTitleNextToDate && cellData.liturgicalColor && LIT_LABELS[cellData.liturgicalColor]
       );
-      if (cellData.tag || hasLitInBody) {
+      const hasTodayInBody = Boolean(isToday && putTitleNextToDate);
+      if (hasTodayInBody || cellData.tag || hasLitInBody) {
         const badgesRow = document.createElement('div');
         badgesRow.className = 'cell-badges-row';
+        if (hasTodayInBody) {
+          const todayBadge = document.createElement('span');
+          todayBadge.className = 'today-pill';
+          todayBadge.textContent = 'HOJE';
+          badgesRow.appendChild(todayBadge);
+        }
         if (cellData.tag) {
           const tagEl = document.createElement('span');
           tagEl.className = `cell-tag ${normalizeTagClass(cellData.tag)}`;
@@ -5593,10 +5721,10 @@ ${clone.outerHTML}
       });
     });
 
-    // Imprimir calendário (paisagem)
+    // Imprimir calendário (A4 paisagem limpo, 1 página completa sem cortes de texto)
     $('printBtn').addEventListener('click', () => {
       document.body.classList.remove('printing-report');
-      window.print();
+      printCalendarClean();
     });
 
     // Busca
@@ -5839,10 +5967,13 @@ ${clone.outerHTML}
     });
     window.addEventListener('beforeprint', () => {
       stopVerseRotation();
-      fitAllCellTexts();
+      if (!document.body.classList.contains('printing-report')) {
+        document.body.classList.add('calendar-print-doc');
+        fitAllCellTexts();
+      }
     });
     window.addEventListener('afterprint', () => {
-      document.body.classList.remove('printing-report');
+      document.body.classList.remove('printing-report', 'calendar-print-doc');
       startVerseRotation();
       fitAllCellTexts();
     });
