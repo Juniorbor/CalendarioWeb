@@ -3906,8 +3906,9 @@ body {
   border-top: 1px solid #e2e8f0;
 }
 
-@media (max-width: 780px) {
-  .business-day-banner {
+@media screen and (max-width: 780px) {
+  .business-day-banner,
+  .cloud-warning-banner {
     padding: 8px 12px;
   }
   .report-controls-grid,
@@ -3943,7 +3944,7 @@ body {
    ========================= */
 @page reportPage {
   size: A4 portrait;
-  margin: 11mm;
+  margin: 12mm;
 }
 
 @media print {
@@ -4005,7 +4006,7 @@ body {
     height: 16px !important;
   }
 
-  /* Modo de impressão exclusivo do Relatório Mensal em A4 Retrato */
+  /* Modo de impressão exclusivo do Relatório Mensal em A4 Retrato (fallback para Ctrl+P) */
   body.printing-report #appView,
   body.printing-report #setupView,
   body.printing-report #loginView {
@@ -4022,6 +4023,7 @@ body {
   }
 
   body.printing-report .report-modal-card {
+    display: block !important;
     max-width: none !important;
     max-height: none !important;
     border: none !important;
@@ -4031,18 +4033,44 @@ body {
   }
 
   body.printing-report .report-modal-body {
+    display: block !important;
     background: #ffffff !important;
     padding: 0 !important;
     overflow: visible !important;
   }
 
   body.printing-report .report-sheet {
+    display: block !important;
     border: none !important;
     border-radius: 0 !important;
     box-shadow: none !important;
     padding: 0 !important;
+    width: 100% !important;
   }
 
+  body.printing-report .rs-section {
+    display: block !important;
+    margin-top: 14px !important;
+  }
+
+  body.printing-report .rs-section-title {
+    margin-bottom: 8px !important;
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  body.printing-report .rs-table thead {
+    display: table-header-group;
+  }
+
+  body.printing-report .rs-table tfoot {
+    display: table-row-group;
+  }
+
+  body.printing-report .rs-header,
+  body.printing-report .rs-meta-grid,
+  body.printing-report .rs-kpi-grid,
+  body.printing-report .rs-annual-kpi-grid,
   body.printing-report .rs-table tr,
   body.printing-report .rs-kpi-card,
   body.printing-report .rs-annual-kpi-card,
@@ -4050,5 +4078,6 @@ body {
   body.printing-report .rs-extra-card,
   body.printing-report .rs-footer {
     break-inside: avoid;
+    page-break-inside: avoid;
   }
 }

@@ -4682,15 +4682,378 @@
     $('rsDocFooterNote').textContent = `Documento oficial gerado pelo Calendário Mensal — Paróquia Evangélica de Confissão Luterana Martim Lutero (IECLB) • Emitido em ${todayDateStr} às ${nowTimeStr}.`;
   }
 
-  function printMonthlyReport() {
+  async function buildReportDocumentHtml() {
     renderMonthlyReport();
+    const sheetEl = $('reportSheet');
+    if (!sheetEl) return null;
+
+    const logoDataUrl = await getParishLogoDataUrl();
+    const clone = sheetEl.cloneNode(true);
+    const logoImg = clone.querySelector('.rs-logo');
+    if (logoImg) logoImg.setAttribute('src', logoDataUrl);
+
+    const scope = $('reportScopeSelect')?.value || 'full';
+    const isAnnualScope = scope === 'annual_full';
+    const monthSlug = normalizeTextForMatch(MONTHS_CAP[state.viewMonth - 1]).replace(/[^a-z0-9]+/g, '-');
+    const titleText = isAnnualScope
+      ? `Relatório Anual — ${state.viewYear} — Paróquia Martim Lutero`
+      : `Relatório Mensal — ${MONTHS_CAP[state.viewMonth - 1]} ${state.viewYear} — Paróquia Martim Lutero`;
+
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>${titleText}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet" />
+<style>
+  @page { size: A4 portrait; margin: 12mm; }
+  * { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  html, body { margin: 0; padding: 0; background: #eef2f7; font-family: 'Inter', 'Segoe UI', Roboto, Arial, sans-serif; color: #1e293b; font-size: 12px; line-height: 1.42; }
+  body { padding: 20px; }
+  .hidden { display: none !important; }
+
+  .report-sheet {
+    display: block;
+    width: 100%;
+    max-width: 790px;
+    margin: 0 auto;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    padding: 24px 28px;
+  }
+
+  .rs-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding-bottom: 14px;
+    margin-bottom: 14px;
+    border-bottom: 2px solid #1e3a5f;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .rs-logo { width: 70px; height: 70px; object-fit: contain; flex-shrink: 0; }
+  .rs-org { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+  .rs-church-name { font-size: 17px; font-weight: 500; color: #1e3a5f; line-height: 1.25; }
+  .rs-church-sub { font-size: 11.5px; color: #475569; }
+  .rs-doc-title { margin-top: 4px; font-size: 13px; font-weight: 500; color: #1d4ed8; text-transform: uppercase; letter-spacing: 0.03em; }
+
+  .rs-meta-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px 12px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 14px;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .rs-meta-item { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .rs-meta-item.rs-meta-full { grid-column: 1 / -1; padding-top: 6px; border-top: 1px dashed #cbd5e1; }
+  .rs-meta-label { font-size: 9.5px; font-weight: 500; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; }
+  .rs-meta-val { font-size: 11.5px; color: #0f172a; overflow-wrap: break-word; }
+
+  .rs-section { display: block; margin-top: 16px; }
+  .rs-section-title {
+    margin: 0 0 9px 0;
+    font-size: 13px;
+    font-weight: 500;
+    color: #1e3a5f;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #cbd5e1;
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  .rs-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .rs-kpi-card {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-left: 3px solid #2563eb;
+    border-radius: 6px;
+    padding: 8px 10px;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .rs-kpi-num { font-size: 17px; font-weight: 500; color: #0f172a; line-height: 1.15; }
+  .rs-kpi-label { font-size: 11px; color: #334155; margin-top: 2px; }
+  .rs-kpi-sub { font-size: 10px; color: #64748b; margin-top: 1px; }
+
+  .rs-categories-wrap {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 16px;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .rs-cat-row { display: block; }
+  .rs-cat-head { display: flex; justify-content: space-between; font-size: 11.5px; margin-bottom: 3px; }
+  .rs-cat-count { font-size: 11px; color: #475569; }
+  .rs-cat-bar-track { height: 6px; background: #e2e8f0; border-radius: 999px; overflow: hidden; }
+  .rs-cat-bar-fill { height: 100%; background: #2563eb; border-radius: 999px; }
+
+  .rs-annual-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: 10px;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .rs-annual-kpi-card {
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 6px;
+    padding: 8px 9px;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .rs-annual-kpi-num { font-size: 16px; font-weight: 500; color: #1e3a8a; line-height: 1.15; }
+  .rs-annual-kpi-label { font-size: 10px; color: #334155; margin-top: 2px; line-height: 1.3; }
+
+  .rs-table { width: 100%; border-collapse: collapse; font-size: 11.5px; margin-top: 6px; table-layout: auto; }
+  .rs-table thead { display: table-header-group; }
+  .rs-table tfoot { display: table-row-group; }
+  .rs-table tr { break-inside: avoid; page-break-inside: avoid; }
+  .rs-table th {
+    background: #1e3a5f;
+    color: #ffffff;
+    font-weight: 500;
+    text-align: left;
+    padding: 6px 8px;
+    border: 1px solid #1e3a5f;
+    font-size: 10.5px;
+    letter-spacing: 0.02em;
+  }
+  .rs-table td {
+    padding: 6px 8px;
+    border: 1px solid #cbd5e1;
+    vertical-align: top;
+    line-height: 1.38;
+    color: #1e293b;
+    overflow-wrap: break-word;
+  }
+  .rs-table tbody tr:nth-child(even) { background: #f8fafc; }
+  .rs-table tfoot td { background: #eff6ff; color: #1e3a5f; font-weight: 500; border-top: 2px solid #1e3a5f; font-size: 11px; }
+
+  .rs-annual-rank-col { width: 28px; text-align: center; color: #64748b; }
+  .rs-annual-qty-col { width: 108px; }
+  .rs-qty-wrap { display: flex; align-items: center; gap: 5px; }
+  .rs-qty-pill { display: inline-block; padding: 1px 6px; border-radius: 999px; background: #dbeafe; color: #1e40af; font-size: 10.5px; font-weight: 500; }
+  .rs-qty-pct { font-size: 10px; color: #64748b; }
+  .rs-qty-bar-track { margin-top: 4px; height: 4px; background: #e2e8f0; border-radius: 999px; overflow: hidden; }
+  .rs-qty-bar-fill { height: 100%; background: #2563eb; border-radius: 999px; }
+  .rs-annual-dates { font-size: 10.5px; color: #475569; line-height: 1.38; }
+
+  .rs-annual-subhead {
+    margin: 12px 0 7px 0;
+    font-size: 11.5px;
+    font-weight: 500;
+    color: #334155;
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+  .rs-annual-month-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 7px;
+  }
+  .rs-annual-month-card {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 5px;
+    padding: 7px 8px;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .rs-annual-month-card.has-items { background: #ffffff; border-color: #bfdbfe; }
+  .rs-annual-month-head { display: flex; align-items: center; justify-content: space-between; gap: 4px; margin-bottom: 4px; }
+  .rs-annual-month-name { font-size: 11px; font-weight: 500; color: #1e3a5f; }
+  .rs-annual-month-count { font-size: 9.5px; font-weight: 500; padding: 1px 6px; border-radius: 999px; background: #e2e8f0; color: #475569; }
+  .rs-annual-month-card.has-items .rs-annual-month-count { background: #dbeafe; color: #1e40af; }
+  .rs-annual-month-bar { height: 4px; background: #e2e8f0; border-radius: 999px; overflow: hidden; margin-bottom: 5px; }
+  .rs-annual-month-bar-fill { height: 100%; background: #2563eb; border-radius: 999px; }
+  .rs-annual-month-list { font-size: 10px; color: #475569; line-height: 1.32; }
+
+  .rs-date-col { width: 102px; white-space: nowrap; }
+  .rs-cat-col { width: 118px; }
+  .rs-date-main { font-weight: 500; color: #0f172a; font-size: 11.5px; }
+  .rs-day-sub { font-size: 10px; color: #64748b; margin-top: 1px; }
+  .rs-day-type { display: inline-block; margin-top: 3px; padding: 1px 5px; border-radius: 4px; font-size: 9.5px; font-weight: 500; }
+  .rs-day-type.is-bday { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+  .rs-day-type.is-wknd { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
+  .rs-day-type.is-hol { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+
+  .cell-tag { display: inline-block; white-space: nowrap; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 500; background: #e2e8f0; color: #1e293b; }
+  .cell-tag.tag-feriado { background: #fee2e2; color: #991b1b; }
+  .cell-tag.tag-culto { background: #dbeafe; color: #1e40af; }
+  .cell-tag.tag-reuniao { background: #ede9fe; color: #5b21b6; }
+  .cell-tag.tag-evento { background: #d1fae5; color: #065f46; }
+  .cell-tag.tag-formacao { background: #cffafe; color: #155e75; }
+  .cell-tag.tag-citacao { background: #fef3c7; color: #92400e; }
+  .cell-tag.tag-aniversario { background: #fce7f3; color: #9d174d; }
+
+  .lit-badge { display: inline-block; padding: 1px 6px; border-radius: 999px; font-size: 10px; border: 1px solid #cbd5e1; }
+  .lit-branco { background: #ffffff; color: #78350f; border-color: #d97706; }
+  .lit-verde { background: #ecfdf5; color: #065f46; border-color: #34d399; }
+  .lit-vermelho { background: #fef2f2; color: #991b1b; border-color: #f87171; }
+  .lit-roxo { background: #f5f3ff; color: #5b21b6; border-color: #a78bfa; }
+  .lit-rosa { background: #fdf2f8; color: #9d174d; border-color: #f472b6; }
+  .lit-dourado { background: #fffbeb; color: #92400e; border-color: #fbbf24; }
+  .lit-preto { background: #f1f5f9; color: #0f172a; border-color: #475569; }
+
+  .rs-act-title { font-weight: 500; color: #0f172a; margin-bottom: 2px; font-size: 11.5px; }
+  .rs-act-schedules { margin: 3px 0 0; padding-left: 15px; color: #334155; font-size: 11px; }
+  .rs-act-schedules li { margin-bottom: 1px; }
+  .rs-act-notes { margin-top: 3px; color: #475569; white-space: pre-line; font-size: 11px; }
+  .rs-act-notes b, .rs-act-notes strong, .rs-extra-body b, .rs-extra-body strong { font-weight: 700; }
+  .rs-act-notes i, .rs-act-notes em, .rs-extra-body i, .rs-extra-body em { font-style: italic; }
+  .rs-act-notes u, .rs-extra-body u { text-decoration: underline; text-underline-offset: 2px; }
+  .rs-act-team { margin-top: 4px; padding-top: 3px; border-top: 1px dashed #e2e8f0; font-size: 10.5px; color: #334155; }
+  .rs-act-holiday { font-size: 10px; color: #991b1b; margin-top: 2px; }
+
+  .rs-extra-list { display: block; }
+  .rs-extra-card {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-left: 3px solid #64748b;
+    border-radius: 5px;
+    padding: 8px 10px;
+    font-size: 11.5px;
+    margin-bottom: 7px;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .rs-extra-title { font-weight: 500; color: #0f172a; margin-bottom: 2px; }
+  .rs-extra-body { color: #475569; white-space: pre-line; }
+
+  .rs-team-grid, .rs-bday-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px 10px; }
+  .rs-chip-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 9px;
+    border: 1px solid #e2e8f0;
+    border-radius: 5px;
+    background: #f8fafc;
+    font-size: 11px;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .rs-chip-main { color: #0f172a; font-weight: 500; }
+  .rs-chip-sub { color: #64748b; font-size: 10px; }
+  .rs-empty-box { padding: 10px 12px; border: 1px dashed #cbd5e1; border-radius: 6px; color: #64748b; font-size: 11.5px; }
+  .rs-admin-notes-text {
+    margin: 0;
+    padding: 9px 12px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    font-size: 11.5px;
+    line-height: 1.48;
+    white-space: pre-line;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .rs-footer {
+    margin-top: 18px;
+    padding-top: 12px;
+    border-top: 1px solid #cbd5e1;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .rs-city-date { text-align: right; font-size: 11.5px; color: #334155; margin-bottom: 22px; }
+  .rs-signatures { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 36px; margin-bottom: 14px; }
+  .rs-sig-col { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+  .rs-sig-line { width: 100%; max-width: 240px; border-bottom: 1px solid #475569; height: 22px; }
+  .rs-sig-label { font-size: 11px; color: #475569; }
+  .rs-doc-footer-note { text-align: center; font-size: 10px; color: #64748b; padding-top: 6px; border-top: 1px solid #e2e8f0; }
+
+  @media print {
+    html, body { background: #ffffff !important; padding: 0 !important; margin: 0 !important; }
+    .report-sheet { border: none !important; border-radius: 0 !important; padding: 0 !important; max-width: none !important; width: 100% !important; box-shadow: none !important; }
+  }
+</style>
+</head>
+<body>
+${clone.outerHTML}
+</body>
+</html>`;
+
+    return {
+      html,
+      filename: isAnnualScope
+        ? `relatorio-anual-${state.viewYear}.html`
+        : `relatorio-mensal-${monthSlug}-${state.viewYear}.html`,
+    };
+  }
+
+  async function printMonthlyReport() {
+    const built = await buildReportDocumentHtml();
+    if (!built) return;
     markReportGeneratedToday();
-    document.body.classList.add('printing-report');
-    window.print();
-    // Garantia de remoção da classe caso o navegador não dispare afterprint
+
+    // Remove qualquer iframe de impressão anterior
+    const prevFrame = $('reportPrintFrame');
+    if (prevFrame) prevFrame.remove();
+
+    const iframe = document.createElement('iframe');
+    iframe.id = 'reportPrintFrame';
+    iframe.setAttribute('aria-hidden', 'true');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    iframe.style.visibility = 'hidden';
+    document.body.appendChild(iframe);
+
+    const frameDoc = iframe.contentWindow?.document;
+    if (!frameDoc) {
+      iframe.remove();
+      document.body.classList.add('printing-report');
+      window.print();
+      return;
+    }
+
+    frameDoc.open();
+    frameDoc.write(built.html);
+    frameDoc.close();
+
+    const triggerPrint = () => {
+      try {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+      } catch {
+        document.body.classList.add('printing-report');
+        window.print();
+      }
+    };
+
+    // Aguarda carregamento da logo embutida e fontes antes de abrir a caixa de impressão/PDF
     setTimeout(() => {
-      document.body.classList.remove('printing-report');
-    }, 1500);
+      const fontsReady = iframe.contentWindow?.document?.fonts?.ready;
+      if (fontsReady && typeof fontsReady.then === 'function') {
+        fontsReady.then(() => setTimeout(triggerPrint, 80)).catch(() => triggerPrint());
+      } else {
+        triggerPrint();
+      }
+    }, 120);
   }
 
   async function getParishLogoDataUrl() {
@@ -4709,141 +5072,14 @@
   }
 
   async function downloadMonthlyReportHtml() {
-    renderMonthlyReport();
-    const sheetEl = $('reportSheet');
-    if (!sheetEl) return;
+    const built = await buildReportDocumentHtml();
+    if (!built) return;
 
-    const logoDataUrl = await getParishLogoDataUrl();
-    const clone = sheetEl.cloneNode(true);
-    const logoImg = clone.querySelector('.rs-logo');
-    if (logoImg) logoImg.setAttribute('src', logoDataUrl);
-
-    const scope = $('reportScopeSelect')?.value || 'full';
-    const isAnnualScope = scope === 'annual_full';
-    const monthSlug = normalizeTextForMatch(MONTHS_CAP[state.viewMonth - 1]).replace(/[^a-z0-9]+/g, '-');
-    const titleText = isAnnualScope
-      ? `Relatório Anual — ${state.viewYear} — Paróquia Martim Lutero`
-      : `Relatório Mensal — ${MONTHS_CAP[state.viewMonth - 1]} ${state.viewYear} — Paróquia Martim Lutero`;
-
-    const standaloneHtml = `<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>${titleText}</title>
-<style>
-  @page { size: A4 portrait; margin: 12mm; }
-  * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  body { margin: 0; padding: 24px; background: #eef2f7; font-family: 'Inter', 'Segoe UI', Roboto, Arial, sans-serif; color: #1e293b; }
-  .hidden { display: none !important; }
-  .report-sheet { max-width: 840px; margin: 0 auto; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 28px 32px; display: flex; flex-direction: column; gap: 18px; }
-  .rs-header { display: flex; align-items: center; gap: 18px; padding-bottom: 16px; border-bottom: 2px solid #1e3a5f; }
-  .rs-logo { width: 78px; height: 78px; object-fit: contain; flex-shrink: 0; }
-  .rs-org { display: flex; flex-direction: column; gap: 3px; }
-  .rs-church-name { font-size: 19px; font-weight: 500; color: #1e3a5f; }
-  .rs-church-sub { font-size: 13px; color: #475569; }
-  .rs-doc-title { margin-top: 4px; font-size: 15px; font-weight: 500; color: #1d4ed8; text-transform: uppercase; letter-spacing: 0.03em; }
-  .rs-meta-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 14px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 11px 14px; }
-  .rs-meta-item { display: flex; flex-direction: column; gap: 2px; }
-  .rs-meta-item.rs-meta-full { grid-column: 1 / -1; padding-top: 6px; border-top: 1px dashed #cbd5e1; }
-  .rs-meta-label { font-size: 11px; font-weight: 500; color: #64748b; text-transform: uppercase; }
-  .rs-meta-val { font-size: 13px; color: #0f172a; }
-  .rs-section { display: flex; flex-direction: column; gap: 10px; }
-  .rs-section-title { margin: 0; font-size: 14px; font-weight: 500; color: #1e3a5f; padding-bottom: 5px; border-bottom: 1px solid #cbd5e1; }
-  .rs-kpi-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-  .rs-kpi-card { background: #f8fafc; border: 1px solid #e2e8f0; border-left: 3px solid #2563eb; border-radius: 6px; padding: 10px 12px; }
-  .rs-kpi-num { font-size: 20px; font-weight: 500; color: #0f172a; }
-  .rs-kpi-label { font-size: 12px; color: #475569; }
-  .rs-kpi-sub { font-size: 11px; color: #64748b; }
-  .rs-categories-wrap { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 18px; }
-  .rs-cat-row { display: flex; flex-direction: column; gap: 4px; }
-  .rs-cat-head { display: flex; justify-content: space-between; font-size: 13px; }
-  .rs-cat-count { font-size: 12px; color: #475569; }
-  .rs-cat-bar-track { height: 7px; background: #e2e8f0; border-radius: 999px; overflow: hidden; }
-  .rs-cat-bar-fill { height: 100%; background: #2563eb; }
-  .rs-annual-kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-  .rs-annual-kpi-card { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 9px 11px; }
-  .rs-annual-kpi-num { font-size: 18px; font-weight: 500; color: #1e3a8a; }
-  .rs-annual-kpi-label { font-size: 11px; color: #334155; }
-  .rs-annual-rank-col { width: 34px; text-align: center; color: #64748b; }
-  .rs-annual-qty-col { width: 128px; }
-  .rs-qty-wrap { display: flex; align-items: center; gap: 6px; }
-  .rs-qty-pill { display: inline-flex; padding: 2px 7px; border-radius: 999px; background: #dbeafe; color: #1e40af; font-size: 12px; font-weight: 500; }
-  .rs-qty-pct { font-size: 11px; color: #64748b; }
-  .rs-qty-bar-track { margin-top: 4px; height: 5px; background: #e2e8f0; border-radius: 999px; overflow: hidden; }
-  .rs-qty-bar-fill { height: 100%; background: #2563eb; }
-  .rs-annual-dates { font-size: 11px; color: #475569; line-height: 1.4; }
-  .rs-annual-subhead { margin-top: 4px; font-size: 13px; font-weight: 500; color: #334155; }
-  .rs-annual-month-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-  .rs-annual-month-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 10px; display: flex; flex-direction: column; gap: 5px; break-inside: avoid; }
-  .rs-annual-month-card.has-items { background: #ffffff; border-color: #bfdbfe; }
-  .rs-annual-month-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-  .rs-annual-month-name { font-size: 12px; font-weight: 500; color: #1e3a5f; }
-  .rs-annual-month-count { font-size: 11px; font-weight: 500; padding: 1px 6px; border-radius: 999px; background: #e2e8f0; color: #475569; }
-  .rs-annual-month-card.has-items .rs-annual-month-count { background: #dbeafe; color: #1e40af; }
-  .rs-annual-month-bar { height: 4px; background: #e2e8f0; border-radius: 999px; overflow: hidden; }
-  .rs-annual-month-bar-fill { height: 100%; background: #2563eb; }
-  .rs-annual-month-list { font-size: 11px; color: #475569; line-height: 1.35; }
-  .rs-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  .rs-table th { background: #1e3a5f; color: #ffffff; font-weight: 500; text-align: left; padding: 8px 10px; border: 1px solid #1e3a5f; font-size: 12px; }
-  .rs-table td { padding: 8px 10px; border: 1px solid #cbd5e1; vertical-align: top; line-height: 1.42; }
-  .rs-table tbody tr:nth-child(even) { background: #f8fafc; }
-  .rs-table tfoot td { background: #eff6ff; color: #1e3a5f; font-weight: 500; border-top: 2px solid #1e3a5f; }
-  .rs-date-col { width: 118px; white-space: nowrap; }
-  .rs-date-main { font-weight: 500; color: #0f172a; }
-  .rs-day-sub { font-size: 11px; color: #64748b; margin-top: 2px; }
-  .rs-day-type { display: inline-block; margin-top: 4px; padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 500; }
-  .rs-day-type.is-bday { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
-  .rs-day-type.is-wknd { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
-  .rs-day-type.is-hol { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
-  .cell-tag { display: inline-block; white-space: nowrap; padding: 2px 7px; border-radius: 4px; font-size: 11px; background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
-  .lit-badge { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; border: 1px solid #cbd5e1; }
-  .lit-branco { background: #ffffff; color: #78350f; border-color: #d97706; }
-  .lit-verde { background: #ecfdf5; color: #065f46; border-color: #34d399; }
-  .lit-vermelho { background: #fef2f2; color: #991b1b; border-color: #f87171; }
-  .lit-roxo { background: #f5f3ff; color: #5b21b6; border-color: #a78bfa; }
-  .lit-rosa { background: #fdf2f8; color: #9d174d; border-color: #f472b6; }
-  .lit-dourado { background: #fffbeb; color: #92400e; border-color: #fbbf24; }
-  .lit-preto { background: #f1f5f9; color: #0f172a; border-color: #475569; }
-  .rs-act-title { font-weight: 500; color: #0f172a; margin-bottom: 3px; }
-  .rs-act-schedules { margin: 4px 0 0; padding-left: 16px; color: #334155; font-size: 12px; }
-  .rs-act-notes { margin-top: 4px; color: #475569; white-space: pre-line; font-size: 12px; }
-  .rs-act-notes b, .rs-act-notes strong, .rs-extra-body b, .rs-extra-body strong { font-weight: 700; }
-  .rs-act-notes u, .rs-extra-body u { text-decoration: underline; }
-  .rs-act-team { margin-top: 5px; padding-top: 4px; border-top: 1px dashed #e2e8f0; font-size: 12px; color: #334155; }
-  .rs-act-holiday { font-size: 11px; color: #991b1b; }
-  .rs-extra-list { display: flex; flex-direction: column; gap: 8px; }
-  .rs-extra-card { background: #f8fafc; border: 1px solid #e2e8f0; border-left: 3px solid #64748b; border-radius: 5px; padding: 9px 12px; font-size: 13px; }
-  .rs-extra-title { font-weight: 500; color: #0f172a; margin-bottom: 3px; }
-  .rs-extra-body { color: #475569; white-space: pre-line; }
-  .rs-team-grid, .rs-bday-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; }
-  .rs-chip-card { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 10px; border: 1px solid #e2e8f0; border-radius: 5px; background: #f8fafc; font-size: 12px; }
-  .rs-chip-main { color: #0f172a; font-weight: 500; }
-  .rs-chip-sub { color: #64748b; font-size: 11px; }
-  .rs-empty-box { padding: 12px; border: 1px dashed #cbd5e1; border-radius: 6px; color: #64748b; font-size: 13px; }
-  .rs-admin-notes-text { margin: 0; padding: 10px 14px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 13px; line-height: 1.5; white-space: pre-line; }
-  .rs-footer { margin-top: 8px; padding-top: 14px; border-top: 1px solid #cbd5e1; display: flex; flex-direction: column; gap: 18px; break-inside: avoid; }
-  .rs-city-date { text-align: right; font-size: 13px; color: #334155; }
-  .rs-signatures { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 36px; margin-top: 18px; }
-  .rs-sig-col { display: flex; flex-direction: column; align-items: center; gap: 6px; }
-  .rs-sig-line { width: 100%; max-width: 260px; border-bottom: 1px solid #475569; height: 22px; }
-  .rs-sig-label { font-size: 12px; color: #475569; }
-  .rs-doc-footer-note { text-align: center; font-size: 11px; color: #64748b; padding-top: 6px; border-top: 1px solid #e2e8f0; }
-  @media print { body { background: #ffffff; padding: 0; } .report-sheet { border: none; padding: 0; max-width: none; } tr { break-inside: avoid; } }
-</style>
-</head>
-<body>
-${clone.outerHTML}
-</body>
-</html>`;
-
-    const blob = new Blob([standaloneHtml], { type: 'text/html;charset=utf-8' });
+    const blob = new Blob([built.html], { type: 'text/html;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = isAnnualScope
-      ? `relatorio-anual-${state.viewYear}.html`
-      : `relatorio-mensal-${monthSlug}-${state.viewYear}.html`;
+    a.download = built.filename;
     a.click();
     URL.revokeObjectURL(url);
     markReportGeneratedToday();
